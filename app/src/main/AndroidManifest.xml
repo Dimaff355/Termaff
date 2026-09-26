@@ -11,10 +11,10 @@
         android:label="Termaff"
         android:supportsRtl="true"
         android:theme="@style/Theme.Termaff">
-        <!-- configChanges: поворот/клавиатура не пересоздают Activity, терминал не теряет состояние -->
+        <!-- configChanges: поворот/клавиатура/размер шрифта/язык не пересоздают Activity — экран и терминал не теряются -->
         <activity
             android:name=".MainActivity"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|fontWeightAdjustment|locale|layoutDirection"
             android:exported="true"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>

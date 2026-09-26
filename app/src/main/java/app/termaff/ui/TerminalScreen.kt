@@ -47,6 +47,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,7 +60,9 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
@@ -110,6 +113,11 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
     val context = LocalContext.current
     // Системный monospace на части прошивок (MIUI/HyperOS) не моноширинный → буквы «разъезжаются». Свой шрифт.
     val font = remember { context.resources.getFont(R.font.jetbrains_mono) }
+    // Авто-размер: 80 колонок по ширине экрана (под них рассчитаны fastfetch, mc, htop), не крупнее 12 sp.
+    // Ширина символа JetBrains Mono — 0.6 em; 0.97 — запас на округление ширины ячейки в termlib.
+    val autoFont = (LocalConfiguration.current.screenWidthDp - 8) / (80 * 0.6f * LocalDensity.current.fontScale) * 0.97f
+    val fontSize = if (Store.fontSize > 0) Store.fontSize else autoFont.coerceIn(6f, 12f)
+    val currentFont by rememberUpdatedState(fontSize)
     val termFocus = remember { FocusRequester() }
     val lineFocus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -166,14 +174,14 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
                     val e = awaitPointerEvent(PointerEventPass.Initial)
                     if (e.changes.count { it.pressed } > 1) zoom *= e.calculateZoom()
                 } while (e.changes.any { it.pressed })
-                if (zoom != 1f) Store.saveFontSize((Store.fontSize * zoom).coerceIn(6f, 24f))
+                if (zoom != 1f) Store.saveFontSize((currentFont * zoom).coerceIn(6f, 24f))
             }
         }) {
             Terminal(
                 terminalEmulator = emu,
                 modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
                 typeface = font,
-                initialFontSize = Store.fontSize.sp,
+                initialFontSize = fontSize.sp,
                 backgroundColor = Bg,
                 foregroundColor = Text,
                 keyboardEnabled = direct,

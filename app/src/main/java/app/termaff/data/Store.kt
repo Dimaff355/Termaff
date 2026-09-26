@@ -40,8 +40,8 @@ object Store {
     var lock by mutableStateOf(false)
         private set
 
-    /** Размер шрифта терминала, sp (меняется щипком). */
-    var fontSize by mutableStateOf(10f)
+    /** Размер шрифта терминала, sp; 0 — авто (под 80 колонок). Меняется щипком. */
+    var fontSize by mutableStateOf(0f)
         private set
 
     fun init(context: Context) {
@@ -89,7 +89,7 @@ object Store {
         val hosts = o.optJSONObject("knownHosts") ?: JSONObject()
         knownHosts = hosts.keys().asSequence().associateWith(hosts::getString)
         lock = o.optBoolean("lock")
-        fontSize = o.optDouble("fontSize", 10.0).toFloat()
+        fontSize = o.optDouble("font", 0.0).toFloat()
     }
 
     private fun toJson() = JSONObject()
@@ -101,5 +101,5 @@ object Store {
         }))
         .put("knownHosts", JSONObject(knownHosts))
         .put("lock", lock)
-        .put("fontSize", fontSize.toDouble())
+        .put("font", fontSize.toDouble())
 }

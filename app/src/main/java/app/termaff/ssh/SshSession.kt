@@ -76,7 +76,9 @@ class SshSession(val target: Target) {
         onKeyboardInput = ::write,
         onResize = { d ->
             size = d.columns to d.rows
-            scope.launch { runCatching { shell?.resizePTY(d.columns, d.rows, 0, 0) } }
+            // Корутины на IO-пуле могут выполниться не по порядку (поворот = смена ширины и шрифта подряд):
+            // под замком отправляем всегда ПОСЛЕДНИЙ размер, а не тот, что был при запуске
+            scope.launch { synchronized(this@SshSession) { runCatching { size.let { shell?.resizePTY(it.first, it.second, 0, 0) } } } }
         },
     )
 
