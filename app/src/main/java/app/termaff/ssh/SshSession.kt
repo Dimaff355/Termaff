@@ -2,6 +2,7 @@ package app.termaff.ssh
 
 import android.util.Base64
 import app.termaff.data.Server
+import app.termaff.data.Snippet
 import app.termaff.data.Store
 import app.termaff.data.Vault
 import androidx.compose.runtime.getValue
@@ -139,6 +140,9 @@ class SshSession(val target: Target) {
     }
 
     fun write(text: String) = write(text.toByteArray())
+
+    /** Быстрая команда/сценарий: шаги подряд, каждый с Enter — shell выполнит их по очереди. */
+    fun run(snippet: Snippet) = write(snippet.steps.joinToString("") { "$it\r" })
 
     fun close(error: String? = null) {
         if (state is SessionState.Closed) return

@@ -25,11 +25,27 @@ data class Server(
     val title get() = name.ifBlank { host }
 }
 
+/** Быстрая команда. Несколько строк в [command] — сценарий: строки выполняются по очереди. */
+data class Snippet(
+    val id: String = UUID.randomUUID().toString(),
+    val name: String = "",
+    val command: String = "",
+    /** Сервер, для которого команда; пусто — для всех. */
+    val serverId: String = "",
+) {
+    val steps get() = command.lines().map(String::trim).filter(String::isNotEmpty)
+    val title get() = name.ifBlank { steps.firstOrNull().orEmpty() }
+    fun fits(serverId: String) = this.serverId.isEmpty() || this.serverId == serverId
+}
+
 /** Всё состояние приложения — один JSON-файл в приватной папке. Записи атомарные (tmp + rename). */
 object Store {
     private lateinit var file: File
 
     var servers by mutableStateOf(emptyList<Server>())
+        private set
+
+    var snippets by mutableStateOf(emptyList<Snippet>())
         private set
 
     /** host:port → «алгоритм SHA256:отпечаток» (TOFU). */
@@ -54,7 +70,16 @@ object Store {
         servers = if (servers.any { it.id == server.id }) servers.map { if (it.id == server.id) server else it } else servers + server
     }
 
-    fun delete(id: String) = update { servers = servers.filter { it.id != id } }
+    fun delete(id: String) = update {
+        servers = servers.filter { it.id != id }
+        snippets = snippets.filter { it.serverId != id }
+    }
+
+    fun save(snippet: Snippet) = update {
+        snippets = if (snippets.any { it.id == snippet.id }) snippets.map { if (it.id == snippet.id) snippet else it } else snippets + snippet
+    }
+
+    fun deleteSnippet(id: String) = update { snippets = snippets.filter { it.id != id } }
 
     fun saveLock(on: Boolean) = update { lock = on }
 
@@ -86,6 +111,11 @@ object Store {
                 startup = s.optString("startup"),
             )
         }
+        val sn = o.optJSONArray("snippets") ?: JSONArray()
+        snippets = (0 until sn.length()).map { i ->
+            val s = sn.getJSONObject(i)
+            Snippet(s.getString("id"), s.optString("name"), s.optString("command"), s.optString("server"))
+        }
         val hosts = o.optJSONObject("knownHosts") ?: JSONObject()
         knownHosts = hosts.keys().asSequence().associateWith(hosts::getString)
         lock = o.optBoolean("lock")
@@ -98,6 +128,9 @@ object Store {
             JSONObject()
                 .put("id", s.id).put("name", s.name).put("host", s.host).put("port", s.port).put("user", s.user)
                 .put("password", s.password).put("key", s.key).put("tags", JSONArray(s.tags)).put("startup", s.startup)
+        }))
+        .put("snippets", JSONArray(snippets.map { s ->
+            JSONObject().put("id", s.id).put("name", s.name).put("command", s.command).put("server", s.serverId)
         }))
         .put("knownHosts", JSONObject(knownHosts))
         .put("lock", lock)

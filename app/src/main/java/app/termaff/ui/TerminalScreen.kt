@@ -2,6 +2,7 @@ package app.termaff.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateZoom
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.ShortText
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -52,6 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
@@ -74,6 +77,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.termaff.data.Snippet
 import app.termaff.data.Store
 import app.termaff.R
 import app.termaff.ssh.SessionState
@@ -211,6 +215,7 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
             }
         }
 
+        SnippetsBar(session.target.serverId, onRun = session::run, onInsert = { if (!direct) setLine(it) })
         KeysBar(mods, ::key, ::type, ::arrow, onTab = { if (direct || line.text.isEmpty()) key(VTermKey.TAB) else sendLine("\t") })
 
         if (direct) DirectInput(
@@ -269,6 +274,29 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
             confirmButton = { TextButton(onClick = { p.answer.complete(true) }) { Text("Доверять") } },
             dismissButton = { TextButton(onClick = { p.answer.complete(false) }) { Text("Отмена") } },
         )
+    }
+}
+
+/** Быстрые команды этого сервера: нажатие — выполнить, долгое нажатие — вставить в строку ввода (однострочные). */
+@Composable
+private fun SnippetsBar(serverId: String, onRun: (Snippet) -> Unit, onInsert: (String) -> Unit) {
+    val list = Store.snippets.filter { it.fits(serverId) }
+    if (list.isEmpty()) return
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        list.forEach { s ->
+            Row(
+                Modifier.clip(RoundedCornerShape(8.dp)).background(Card)
+                    .combinedClickable(onLongClick = { s.steps.singleOrNull()?.let(onInsert) }) { onRun(s) }
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Filled.PlayArrow, null, tint = Accent, modifier = Modifier.size(16.dp))
+                Text(s.title, Modifier.padding(start = 4.dp), style = MaterialTheme.typography.labelLarge, maxLines = 1)
+            }
+        }
     }
 }
 

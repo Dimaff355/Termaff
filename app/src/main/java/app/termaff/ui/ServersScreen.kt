@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -20,7 +22,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -49,7 +50,7 @@ import app.termaff.data.Store
 import app.termaff.ssh.Sessions
 
 @Composable
-fun ServersScreen(onOpen: (Server) -> Unit, onEdit: (Server?) -> Unit, onSettings: () -> Unit) {
+fun ServersScreen(onOpen: (Server) -> Unit, onEdit: (Server?) -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     var deleting by remember { mutableStateOf<Server?>(null) }
     val q = query.trim()
@@ -59,6 +60,8 @@ fun ServersScreen(onOpen: (Server) -> Unit, onEdit: (Server?) -> Unit, onSetting
 
     Scaffold(
         containerColor = Bg,
+        // Низ занимает нижняя панель навигации (она сама учитывает системную)
+        contentWindowInsets = WindowInsets.statusBars,
         floatingActionButton = {
             FloatingActionButton(onClick = { onEdit(null) }, containerColor = Accent, contentColor = Bg, shape = CircleShape) {
                 Icon(Icons.Filled.Add, "Добавить сервер")
@@ -70,12 +73,7 @@ fun ServersScreen(onOpen: (Server) -> Unit, onEdit: (Server?) -> Unit, onSetting
             contentPadding = PaddingValues(16.dp, pad.calculateTopPadding() + 16.dp, 16.dp, pad.calculateBottomPadding() + 88.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Серверы", Modifier.weight(1f), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-                    IconButton(onClick = onSettings) { Icon(Icons.Filled.Settings, "Настройки", tint = Muted) }
-                }
-            }
+            item { Text("Серверы", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold) }
             item {
                 TextField(
                     query, { query = it }, Modifier.fillMaxWidth(),
