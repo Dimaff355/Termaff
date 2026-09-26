@@ -40,6 +40,10 @@ object Store {
     var lock by mutableStateOf(false)
         private set
 
+    /** Размер шрифта терминала, sp (меняется щипком). */
+    var fontSize by mutableStateOf(10f)
+        private set
+
     fun init(context: Context) {
         if (::file.isInitialized) return
         file = File(context.filesDir, "state.json")
@@ -53,6 +57,8 @@ object Store {
     fun delete(id: String) = update { servers = servers.filter { it.id != id } }
 
     fun saveLock(on: Boolean) = update { lock = on }
+
+    fun saveFontSize(sp: Float) = update { fontSize = sp }
 
     fun trustHost(hostPort: String, fingerprint: String) = update { knownHosts = knownHosts + (hostPort to fingerprint) }
 
@@ -83,6 +89,7 @@ object Store {
         val hosts = o.optJSONObject("knownHosts") ?: JSONObject()
         knownHosts = hosts.keys().asSequence().associateWith(hosts::getString)
         lock = o.optBoolean("lock")
+        fontSize = o.optDouble("fontSize", 10.0).toFloat()
     }
 
     private fun toJson() = JSONObject()
@@ -94,4 +101,5 @@ object Store {
         }))
         .put("knownHosts", JSONObject(knownHosts))
         .put("lock", lock)
+        .put("fontSize", fontSize.toDouble())
 }

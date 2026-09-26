@@ -2,6 +2,9 @@ package app.termaff.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -54,6 +57,8 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextRange
@@ -64,6 +69,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import app.termaff.data.Store
 import app.termaff.R
 import app.termaff.ssh.SessionState
 import app.termaff.ssh.SshSession
@@ -149,12 +156,24 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
             IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Отключиться") }
         }
 
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+        // Щипок в termlib только визуальный (сбрасывается после жеста) — по его итогу меняем шрифт по-настоящему:
+        // терминал пересчитывает колонки и сообщает серверу новый размер
+        Box(Modifier.weight(1f).fillMaxWidth().pointerInput(Unit) {
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                var zoom = 1f
+                do {
+                    val e = awaitPointerEvent(PointerEventPass.Initial)
+                    if (e.changes.count { it.pressed } > 1) zoom *= e.calculateZoom()
+                } while (e.changes.any { it.pressed })
+                if (zoom != 1f) Store.saveFontSize((Store.fontSize * zoom).coerceIn(6f, 24f))
+            }
+        }) {
             Terminal(
                 terminalEmulator = emu,
                 modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
                 typeface = font,
-                initialFontSize = MaterialTheme.typography.bodySmall.fontSize,
+                initialFontSize = Store.fontSize.sp,
                 backgroundColor = Bg,
                 foregroundColor = Text,
                 keyboardEnabled = direct,
