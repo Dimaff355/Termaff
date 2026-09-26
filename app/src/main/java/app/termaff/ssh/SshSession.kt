@@ -1,0 +1,136 @@
+package app.termaff.ssh
+
+import android.util.Base64
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
+import com.trilead.ssh2.Connection
+import com.trilead.ssh2.Session
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import org.connectbot.terminal.TerminalEmulator
+import org.connectbot.terminal.TerminalEmulatorFactory
+import java.security.MessageDigest
+
+data class Target(
+    val host: String,
+    val port: Int = 22,
+    val user: String,
+    val password: String = "",
+    /** Приватный ключ в PEM/OpenSSH-формате; пустой — вход по паролю. */
+    val key: String = "",
+)
+
+/** Запрос пользователю: доверять ли ключу сервера. */
+class HostKeyPrompt(val host: String, val fingerprint: String, val answer: CompletableDeferred<Boolean>)
+
+sealed interface SessionState {
+    data object Connecting : SessionState
+    data object Connected : SessionState
+    data class Closed(val error: String? = null) : SessionState
+}
+
+/**
+ * Одно SSH-подключение: TCP → проверка ключа хоста → вход → PTY-shell.
+ * Байты сервера идут в [emulator], ввод пишется через [write] в отдельной корутине (не в UI-потоке).
+ */
+class SshSession(val target: Target, private val trustedKeys: MutableMap<String, String>) {
+    var state by mutableStateOf<SessionState>(SessionState.Connecting)
+        private set
+    var hostKeyPrompt by mutableStateOf<HostKeyPrompt?>(null)
+        private set
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val output = Channel<ByteArray>(Channel.UNLIMITED)
+    private var conn: Connection? = null
+    private var shell: Session? = null
+    /** Последний размер экрана (колонки, строки): resize может прийти раньше, чем откроется PTY. */
+    @Volatile private var size = 80 to 24
+
+    val emulator: TerminalEmulator = TerminalEmulatorFactory.create(
+        defaultForeground = Color(0xFFE6EAED),
+        defaultBackground = Color(0xFF0E1113),
+        onKeyboardInput = ::write,
+        onResize = { d ->
+            size = d.columns to d.rows
+            scope.launch { runCatching { shell?.resizePTY(d.columns, d.rows, 0, 0) } }
+        },
+    )
+
+    fun start() = scope.launch {
+        try {
+            val c = Connection(target.host, target.port).also { conn = it }
+            c.connect({ host, port, algo, key -> verifyHostKey("$host:$port", algo, key) }, 10_000, 20_000)
+            val ok = if (target.key.isNotBlank()) {
+                c.authenticateWithPublicKey(target.user, pemLines(target.key).toCharArray(), target.password.ifEmpty { null })
+            } else {
+                c.authenticateWithPassword(target.user, target.password)
+            }
+            check(ok) { "Неверный логин, пароль или ключ" }
+            val s = c.openSession().also { shell = it }
+            s.requestPTY("xterm-256color", size.first, size.second, 0, 0, null)
+            s.startShell()
+            state = SessionState.Connected
+            launch { for (bytes in output) s.stdin.run { write(bytes); flush() } }
+            val buf = ByteArray(8192)
+            val input = s.stdout
+            while (true) {
+                val n = input.read(buf)
+                if (n < 0) break
+                emulator.writeInput(buf, 0, n)
+            }
+            close()
+        } catch (e: Exception) {
+            close(e.message ?: e.javaClass.simpleName)
+        }
+    }
+
+    fun write(bytes: ByteArray) {
+        output.trySend(bytes)
+    }
+
+    fun write(text: String) = write(text.toByteArray())
+
+    fun close(error: String? = null) {
+        if (state is SessionState.Closed) return
+        state = SessionState.Closed(error)
+        hostKeyPrompt?.answer?.complete(false)
+        output.close()
+        runCatching { shell?.close() }
+        runCatching { conn?.close() }
+        scope.cancel()
+    }
+
+    /** TOFU: известный ключ — пускаем молча, новый — спрашиваем, изменившийся — отказ. */
+    private fun verifyHostKey(hostPort: String, algo: String, key: ByteArray): Boolean {
+        val fp = "$algo SHA256:" + Base64.encodeToString(
+            MessageDigest.getInstance("SHA-256").digest(key), Base64.NO_PADDING or Base64.NO_WRAP,
+        )
+        trustedKeys[hostPort]?.let { known ->
+            if (known == fp) return true
+            throw SecurityException("Ключ сервера изменился! Возможна атака MITM.\nБыл: $known\nСейчас: $fp")
+        }
+        val prompt = HostKeyPrompt(hostPort, fp, CompletableDeferred())
+        hostKeyPrompt = prompt
+        val trusted = runBlocking { prompt.answer.await() }
+        hostKeyPrompt = null
+        if (trusted) trustedKeys[hostPort] = fp
+        return trusted
+    }
+}
+
+/** Ключ, вставленный одной строкой (мессенджеры съедают переносы), возвращаем к PEM-виду по строкам. */
+internal fun pemLines(key: String): String {
+    val k = key.trim()
+    if ('\n' in k) return k
+    val m = Regex("(-----BEGIN [A-Z ]+-----)(.+)(-----END [A-Z ]+-----)").find(k) ?: return k
+    val (begin, body, end) = m.destructured
+    return (listOf(begin) + body.trim().split(Regex("\\s+")) + end).joinToString("\n")
+}
