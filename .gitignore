@@ -13,3 +13,7 @@ build/
 *.iml
 .vscode/
 *.kate-swp
+
+# Локальные заметки для агента
+HELP.md
+AGENTS.md
