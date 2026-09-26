@@ -1,5 +1,6 @@
 package app.termaff.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +22,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.ShortText
 import androidx.compose.material3.AlertDialog
@@ -84,7 +86,7 @@ private class StickyMods : ModifierManager {
  * - прямой режим: клавиатура пишет прямо в PTY (vim, htop, mc, пароли).
  */
 @Composable
-fun TerminalScreen(session: SshSession, onBack: () -> Unit, onReconnect: () -> Unit) {
+fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit, onReconnect: () -> Unit) {
     val emu = session.emulator
     val mods = remember { StickyMods() }
     var direct by remember { mutableStateOf(false) }
@@ -100,6 +102,7 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onReconnect: () -> U
         line = TextFieldValue(line.text.replaceRange(line.selection.min, line.selection.max, s),
             TextRange(line.selection.min + s.length))
 
+    BackHandler(onBack = onBack)
     LaunchedEffect(direct) { runCatching { if (direct) termFocus.requestFocus() else lineFocus.requestFocus() } }
 
     Column(Modifier.fillMaxSize().background(Bg).statusBarsPadding().navigationBarsPadding().imePadding()) {
@@ -116,6 +119,7 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onReconnect: () -> U
                 Icon(if (direct) Icons.Filled.ShortText else Icons.Filled.Keyboard,
                     if (direct) "Строка ввода" else "Прямой ввод", tint = if (direct) Accent else Text)
             }
+            IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Отключиться") }
         }
 
         Box(Modifier.weight(1f).fillMaxWidth()) {

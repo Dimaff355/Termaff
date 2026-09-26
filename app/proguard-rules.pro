@@ -3,3 +3,5 @@
 -dontwarn com.trilead.ssh2.**
 # termlib: JNI вызывает Kotlin-методы по имени
 -keep class org.connectbot.terminal.** { *; }
+# tink (зависимость sshlib) ссылается на аннотации, которых нет в рантайме
+-dontwarn javax.annotation.**

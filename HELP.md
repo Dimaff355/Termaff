@@ -4,24 +4,31 @@
 Репозиторий: https://github.com/Dimaff355/Termaff (токен и логин в `.env`, НЕ коммитить `.env`).
 
 ## Статус
-- Этапы 0–1 готовы (2026-09-26): SSH + терминал + строка ввода + панель клавиш, проверено на эмуляторе.
-- Экран подключения `ConnectScreen` временный — на этапе 2 заменяется списком серверов.
+- Этапы 0–2 готовы, релиз **v0.1.0** (2026-09-26): серверы (список/редактор/хранение/шифрование),
+  TOFU с сохранением, SSH-терминал со строкой ввода и панелью клавиш. Дальше — этап 3 (клавиатура).
 
 ## Архитектура (кратко)
 - Kotlin + Jetpack Compose + Material 3, 1 модуль `app`, 1 Activity.
 - Терминал: `org.connectbot:termlib` (libvterm/JNI). SSH: `org.connectbot:sshlib` (Trilead).
-- Данные: один JSON (`kotlinx.serialization`), секреты шифруются Android Keystore AES-GCM.
+- Данные: `files/state.json` через встроенный `org.json` (без kotlinx.serialization — ноль зависимостей),
+  запись атомарная (tmp + rename). Пароли/ключи в JSON зашифрованы `Vault` (Keystore AES-GCM).
+  Проверить на устройстве: `adb shell run-as app.termaff cat files/state.json`.
+- Секреты в редакторе держатся в `remember` (не `rememberSaveable`), чтобы не попадать в Bundle.
 - Ввод: строка ввода (обычный TextField → свайпы работают) + прямой режим для TUI-программ.
-- Навигация без navigation-compose: `MainActivity` показывает экран по состоянию `Sessions.current`.
+- Навигация без navigation-compose: в `MainActivity` три флага (редактор / терминал / список).
+  «Назад» из терминала НЕ рвёт сессию (зелёная точка на карточке), крестик в шапке — отключиться.
 - `android:configChanges` в манифесте — поворот не пересоздаёт Activity, терминал не теряется.
 
 ```
 app/src/main/java/app/termaff/
   MainActivity.kt      — выбор экрана
   ssh/SshSession.kt    — Connection → TOFU → auth → PTY-shell; read-loop → emulator; запись через Channel (не в UI-потоке)
-  ssh/Sessions.kt      — текущая сессия + доверенные ключи хостов (пока в памяти)
+  data/Store.kt        — Server, список серверов, knownHosts, JSON
+  data/Vault.kt        — encrypt/decrypt через Android Keystore
+  ssh/Sessions.kt      — текущая сессия (переживает экраны)
   ui/Theme.kt          — палитра из макета
-  ui/ConnectScreen.kt  — временная форма подключения
+  ui/ServersScreen.kt  — список серверов, поиск, меню, FAB
+  ui/ServerEditScreen.kt — редактор сервера (пароль/ключ, ключ из файла, теги, команда после входа)
   ui/TerminalScreen.kt — Terminal + KeysBar (липкие Ctrl/Alt) + строка ввода
 ```
 
@@ -31,6 +38,7 @@ app/src/main/java/app/termaff/
   (cbssh), пока молодой.
   - `Connection(host, port).connect(verifier, connectTimeout, kexTimeout)`; `authenticateWithPassword` /
     `authenticateWithPublicKey(user, pemChars, passphrase)`; `openSession()` → `requestPTY` → `startShell`.
+  - Пароль: сначала `password`, затем `keyboard-interactive` (многие PAM-серверы принимают только его).
   - Парсер ключей построчный: ключ, склеенный в одну строку, ломается → `pemLines()` в SshSession.kt.
 - Терминал: **`org.connectbot:termlib:0.3.7`** (Compose, libvterm JNI, minSdk 24, ~3 МБ .so на ABI →
   debug APK ~36 МБ со всеми ABI; для релиза сделать ABI splits).
@@ -64,6 +72,18 @@ app/src/main/java/app/termaff/
   Ключ в форму вводится через `adb shell input text` по токенам + `keyevent 62` (пробел).
 - Грабли: `pgrep -f`/`pkill -f` с паттерном из той же команды находят/убивают саму команду —
   эмулятор запускать отдельной фоновой командой.
-- `ConnectScreen` сбрасывает поля при возврате из терминала (временный экран, не чинить).
+- В `ui.sh`-подобных хелперах текст с `(`/`)` ломает `grep -E` — тапать по координатам из дампа.
+- Debug и release подписаны разными ключами: перед установкой другого типа — `adb uninstall app.termaff`.
+
+## Релиз
+- Ключ подписи: `signing/termaff-release.jks` + `signing/keystore.properties` (в .gitignore, пароль там же).
+  **Потеря ключа = нельзя обновить установленное приложение.** Держать резервную копию вне репозитория.
+- `app/build.gradle.kts`: поднять `versionCode` (+1) и `versionName`.
+- `./gradlew assembleRelease` → `app/build/outputs/apk/release/app-{arm64-v8a,armeabi-v7a,x86_64,universal}-release.apk`
+  (ABI splits: arm64 ≈ 5 МБ, universal ≈ 14 МБ). Проверка: `apksigner verify --print-certs`.
+- R8: нужны `-dontwarn javax.annotation.**` (tink) и keep для `com.trilead.ssh2.**`, `org.connectbot.terminal.**`.
+- Перед публикацией прогнать release-APK на эмуляторе (`x86_64`): подключение → shell.
+- Публикация: тег `vX.Y.Z`, релиз и ассеты через REST API (как в `../Notoday/HELP.md`), ассеты сырыми байтами.
+  Имена: `Termaff-X.Y.Z-arm64-v8a.apk` и т.д.
 - `.env` не в формате KEY=VALUE: токен и логин просто строками. Токен доставать
   `grep -oE 'github_pat_[A-Za-z0-9_]+' .env`, **никогда не печатать файл целиком**.

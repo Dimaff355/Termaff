@@ -3,23 +3,28 @@ package app.termaff.ssh
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import java.util.concurrent.ConcurrentHashMap
+import app.termaff.data.Server
 
-/** Живые сессии переживают экраны. Пока одна; на этапе 5 — список + foreground service. */
+/** Живая сессия переживает экраны: «назад» из терминала её не рвёт. Пока одна; на этапе 5 — список + сервис. */
 object Sessions {
-    /** host:port → отпечаток ключа. На этапе 2 переедет в постоянное хранилище. */
-    val trustedKeys: MutableMap<String, String> = ConcurrentHashMap()
-
     var current by mutableStateOf<SshSession?>(null)
         private set
 
-    fun open(target: Target): SshSession {
-        current?.close()
-        return SshSession(target, trustedKeys).also { current = it; it.start() }
+    /** Вернуть живую сессию к этому серверу или открыть новую. */
+    fun open(server: Server): SshSession {
+        current?.takeIf { it.target.serverId == server.id && it.state !is SessionState.Closed }?.let { return it }
+        return reconnect(Target(server))
     }
 
-    fun closeCurrent() {
+    fun reconnect(target: Target): SshSession {
+        current?.close()
+        return SshSession(target).also { current = it; it.start() }
+    }
+
+    fun close() {
         current?.close()
         current = null
     }
+
+    fun isLive(serverId: String) = current?.let { it.target.serverId == serverId && it.state == SessionState.Connected } == true
 }

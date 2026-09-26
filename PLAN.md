@@ -11,7 +11,7 @@
 | Язык/UI | Kotlin + Jetpack Compose + Material 3 | Современный стандарт, меньше кода, чем View/XML |
 | Терминал | `org.connectbot:termlib` (Compose, libvterm через JNI, Apache-2.0) | Готовый Compose-компонент: VT100/xterm, 256/truecolor, выделение, зум, resize |
 | SSH | `org.connectbot:sshlib` 2.2.x (форк Trilead, Apache-2.0) | Зрелая, в проде у ConnectBot: Ed25519, ChaCha20, AES-GCM, SFTP. Новая Kotlin-версия `org.connectbot.sshlib` 0.4 пока сыровата |
-| Хранение | 1 JSON-файл + `kotlinx.serialization` | Вместо Room: данных мало (десятки серверов/команд) |
+| Хранение | 1 JSON-файл + встроенный `org.json` | Вместо Room: данных мало; без лишних зависимостей |
 | Секреты | Android Keystore, AES-GCM | Пароли и приватные ключи шифруются ключом, не покидающим устройство |
 | Навигация | состояние в `MainActivity` | Одна Activity, без библиотеки навигации |
 
@@ -85,7 +85,7 @@ app/src/main/java/app/termaff/
 |---|---|---|
 | 0 ✅ | Окружение и каркас | JBR Android Studio, Gradle wrapper (версии как в Notoday), пустое Compose-приложение, `./gradlew assembleDebug` зелёный, git + GitHub |
 | 1 ✅ | Спайк SSH + терминал | Жёстко заданный сервер → shell в termlib, resize, ввод. Проверка API библиотек; если плохо — запасной стек |
-| 2 | Данные | Models/Store/Vault, список серверов, редактор, host key TOFU |
+| 2 ✅ | Данные | Models/Store/Vault, список серверов, редактор, host key TOFU |
 | 3 | Клавиатура | InputBar (свайпы), прямой режим + авто-переключение, KeysBar, липкие модификаторы, история |
 | 4 | Быстрые команды | Сниппеты, сценарии, чипы в терминале, привязка к серверу |
 | 5 | Фон и устойчивость | Foreground service, несколько сессий, авто-reconnect, keepalive |

@@ -1,6 +1,9 @@
 package app.termaff.ssh
 
 import android.util.Base64
+import app.termaff.data.Server
+import app.termaff.data.Store
+import app.termaff.data.Vault
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -19,14 +22,19 @@ import org.connectbot.terminal.TerminalEmulator
 import org.connectbot.terminal.TerminalEmulatorFactory
 import java.security.MessageDigest
 
-data class Target(
+/** Параметры подключения с уже расшифрованными секретами. Живёт только в памяти сессии. */
+class Target(
+    val serverId: String,
     val host: String,
-    val port: Int = 22,
+    val port: Int,
     val user: String,
-    val password: String = "",
+    val password: String,
     /** Приватный ключ в PEM/OpenSSH-формате; пустой — вход по паролю. */
-    val key: String = "",
-)
+    val key: String,
+    val startup: String,
+) {
+    constructor(s: Server) : this(s.id, s.host, s.port, s.user, Vault.decrypt(s.password), Vault.decrypt(s.key), s.startup)
+}
 
 /** Запрос пользователю: доверять ли ключу сервера. */
 class HostKeyPrompt(val host: String, val fingerprint: String, val answer: CompletableDeferred<Boolean>)
@@ -41,7 +49,7 @@ sealed interface SessionState {
  * Одно SSH-подключение: TCP → проверка ключа хоста → вход → PTY-shell.
  * Байты сервера идут в [emulator], ввод пишется через [write] в отдельной корутине (не в UI-потоке).
  */
-class SshSession(val target: Target, private val trustedKeys: MutableMap<String, String>) {
+class SshSession(val target: Target) {
     var state by mutableStateOf<SessionState>(SessionState.Connecting)
         private set
     var hostKeyPrompt by mutableStateOf<HostKeyPrompt?>(null)
@@ -68,16 +76,12 @@ class SshSession(val target: Target, private val trustedKeys: MutableMap<String,
         try {
             val c = Connection(target.host, target.port).also { conn = it }
             c.connect({ host, port, algo, key -> verifyHostKey("$host:$port", algo, key) }, 10_000, 20_000)
-            val ok = if (target.key.isNotBlank()) {
-                c.authenticateWithPublicKey(target.user, pemLines(target.key).toCharArray(), target.password.ifEmpty { null })
-            } else {
-                c.authenticateWithPassword(target.user, target.password)
-            }
-            check(ok) { "Неверный логин, пароль или ключ" }
+            check(authenticate(c)) { "Неверный логин, пароль или ключ" }
             val s = c.openSession().also { shell = it }
             s.requestPTY("xterm-256color", size.first, size.second, 0, 0, null)
             s.startShell()
             state = SessionState.Connected
+            if (target.startup.isNotBlank()) write(target.startup + "\r")
             launch { for (bytes in output) s.stdin.run { write(bytes); flush() } }
             val buf = ByteArray(8192)
             val input = s.stdout
@@ -90,6 +94,16 @@ class SshSession(val target: Target, private val trustedKeys: MutableMap<String,
         } catch (e: Exception) {
             close(e.message ?: e.javaClass.simpleName)
         }
+    }
+
+    private fun authenticate(c: Connection): Boolean {
+        val t = target
+        if (t.key.isNotBlank()) return c.authenticateWithPublicKey(t.user, pemLines(t.key).toCharArray(), t.password.ifEmpty { null })
+        val methods = c.getRemainingAuthMethods(t.user)
+        if ("password" in methods && c.authenticateWithPassword(t.user, t.password)) return true
+        // Многие серверы принимают пароль только через keyboard-interactive (PAM)
+        return "keyboard-interactive" in methods &&
+            c.authenticateWithKeyboardInteractive(t.user) { _, _, n, _, _ -> Array(n) { t.password } }
     }
 
     fun write(bytes: ByteArray) {
@@ -113,7 +127,7 @@ class SshSession(val target: Target, private val trustedKeys: MutableMap<String,
         val fp = "$algo SHA256:" + Base64.encodeToString(
             MessageDigest.getInstance("SHA-256").digest(key), Base64.NO_PADDING or Base64.NO_WRAP,
         )
-        trustedKeys[hostPort]?.let { known ->
+        Store.knownHosts[hostPort]?.let { known ->
             if (known == fp) return true
             throw SecurityException("Ключ сервера изменился! Возможна атака MITM.\nБыл: $known\nСейчас: $fp")
         }
@@ -121,7 +135,7 @@ class SshSession(val target: Target, private val trustedKeys: MutableMap<String,
         hostKeyPrompt = prompt
         val trusted = runBlocking { prompt.answer.await() }
         hostKeyPrompt = null
-        if (trusted) trustedKeys[hostPort] = fp
+        if (trusted) Store.trustHost(hostPort, fp)
         return trusted
     }
 }

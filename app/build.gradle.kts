@@ -1,7 +1,13 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+// Ключ подписи релиза лежит локально в signing/ (в .gitignore). Без него release собирается неподписанным.
+val signingProps = rootProject.file("signing/keystore.properties")
+    .takeIf { it.isFile }?.let { f -> Properties().apply { f.inputStream().use(::load) } }
 
 android {
     namespace = "app.termaff"
@@ -16,8 +22,28 @@ android {
         versionName = "0.1.0"
     }
 
+    signingConfigs {
+        if (signingProps != null) create("release") {
+            storeFile = rootProject.file(signingProps.getProperty("storeFile"))
+            storePassword = signingProps.getProperty("storePassword")
+            keyAlias = signingProps.getProperty("keyAlias")
+            keyPassword = signingProps.getProperty("keyPassword")
+        }
+    }
+
+    // termlib несёт ~3 МБ нативного кода на ABI → отдельный APK на архитектуру + универсальный
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = true
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
