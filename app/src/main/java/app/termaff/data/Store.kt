@@ -36,6 +36,10 @@ object Store {
     var knownHosts by mutableStateOf(emptyMap<String, String>())
         private set
 
+    /** Вход в приложение по отпечатку/PIN устройства. */
+    var lock by mutableStateOf(false)
+        private set
+
     fun init(context: Context) {
         if (::file.isInitialized) return
         file = File(context.filesDir, "state.json")
@@ -47,6 +51,8 @@ object Store {
     }
 
     fun delete(id: String) = update { servers = servers.filter { it.id != id } }
+
+    fun saveLock(on: Boolean) = update { lock = on }
 
     fun trustHost(hostPort: String, fingerprint: String) = update { knownHosts = knownHosts + (hostPort to fingerprint) }
 
@@ -76,6 +82,7 @@ object Store {
         }
         val hosts = o.optJSONObject("knownHosts") ?: JSONObject()
         knownHosts = hosts.keys().asSequence().associateWith(hosts::getString)
+        lock = o.optBoolean("lock")
     }
 
     private fun toJson() = JSONObject()
@@ -86,4 +93,5 @@ object Store {
                 .put("password", s.password).put("key", s.key).put("tags", JSONArray(s.tags)).put("startup", s.startup)
         }))
         .put("knownHosts", JSONObject(knownHosts))
+        .put("lock", lock)
 }

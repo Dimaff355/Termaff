@@ -54,11 +54,19 @@ class SshSession(val target: Target) {
         private set
     var hostKeyPrompt by mutableStateOf<HostKeyPrompt?>(null)
         private set
+    /** Сервер на альтернативном экране (vim, htop, mc) — нужен прямой ввод. */
+    var altScreen by mutableStateOf(false)
+        private set
+    /** Сервер ждёт пароль (sudo, su, passphrase) — строку ввода маскируем и не запоминаем. */
+    var secretPrompt by mutableStateOf(false)
+        private set
+    /** История строки ввода: только в памяти, пароли сюда не попадают. */
+    val history = ArrayList<String>()
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val output = Channel<ByteArray>(Channel.UNLIMITED)
     private var conn: Connection? = null
-    private var shell: Session? = null
+    @Volatile private var shell: Session? = null
     /** Последний размер экрана (колонки, строки): resize может прийти раньше, чем откроется PTY. */
     @Volatile private var size = 80 to 24
 
@@ -77,9 +85,13 @@ class SshSession(val target: Target) {
             val c = Connection(target.host, target.port).also { conn = it }
             c.connect({ host, port, algo, key -> verifyHostKey("$host:$port", algo, key) }, 10_000, 20_000)
             check(authenticate(c)) { "Неверный логин, пароль или ключ" }
-            val s = c.openSession().also { shell = it }
-            s.requestPTY("xterm-256color", size.first, size.second, 0, 0, null)
+            val s = c.openSession()
+            val opened = size
+            s.requestPTY("xterm-256color", opened.first, opened.second, 0, 0, null)
             s.startShell()
+            // shell публикуем только после старта: resize посреди requestPTY мог подвесить открытие
+            shell = s
+            size.let { if (it != opened) s.resizePTY(it.first, it.second, 0, 0) }
             state = SessionState.Connected
             if (target.startup.isNotBlank()) write(target.startup + "\r")
             launch { for (bytes in output) s.stdin.run { write(bytes); flush() } }
@@ -89,11 +101,25 @@ class SshSession(val target: Target) {
                 val n = input.read(buf)
                 if (n < 0) break
                 emulator.writeInput(buf, 0, n)
+                scan(buf, n)
             }
             close()
         } catch (e: Exception) {
             close(e.message ?: e.javaClass.simpleName)
         }
+    }
+
+    /** Смотрим на поток сервера: переключение экрана (`ESC[?1049h/l`) и приглашение ввести пароль в конце вывода. */
+    private fun scan(buf: ByteArray, n: Int) {
+        ALT_SCREEN.findAll(String(buf, 0, n, Charsets.ISO_8859_1)).lastOrNull()?.let { altScreen = it.groupValues[1] == "h" }
+        val from = maxOf(0, n - 256)
+        secretPrompt = SECRET_PROMPT.containsMatchIn(String(buf, from, n - from).replace(ANSI, ""))
+    }
+
+    fun addHistory(command: String) {
+        if (command.isBlank() || secretPrompt || history.lastOrNull() == command) return
+        history += command
+        if (history.size > 200) history.removeAt(0)
     }
 
     private fun authenticate(c: Connection): Boolean {
@@ -139,6 +165,10 @@ class SshSession(val target: Target) {
         return trusted
     }
 }
+
+private val ALT_SCREEN = Regex("\u001b\\[\\?(?:1049|1047|47)([hl])")
+private val ANSI = Regex("\u001b\\[[0-9;?]*[ -/]*[@-~]")
+private val SECRET_PROMPT = Regex("(?i)(password|passphrase|пароль)[^\n]*:\\s*$")
 
 /** Ключ, вставленный одной строкой (мессенджеры съедают переносы), возвращаем к PEM-виду по строкам. */
 internal fun pemLines(key: String): String {

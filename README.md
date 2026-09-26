@@ -6,7 +6,8 @@
 - **Нормальная клавиатура** — команды набираются в обычной строке ввода: работают свайпы,
   автозамена и голосовой ввод. Для `vim`/`htop`/`mc` — прямой режим.
 - **Панель клавиш** — Ctrl/Alt (липкие), Esc, Tab, стрелки, Home/End, PgUp/PgDn, спецсимволы.
-- **Безопасность** — пароли и ключи шифруются Android Keystore; ключ сервера проверяется
+- **История команд** — ↑/↓ в строке ввода; пароли (`sudo`, `su`) вводятся скрыто и в историю не попадают.
+- **Безопасность** — вход по отпечатку или PIN телефона; пароли и ключи шифруются Android Keystore; ключ сервера проверяется
   по отпечатку при первом входе, подмена ключа блокирует подключение. Без рекламы, аналитики и облака.
 
 ## Установка
@@ -21,4 +22,5 @@ APK — на странице [Releases](https://github.com/Dimaff355/Termaff/re
 ```
 
 Kotlin, Jetpack Compose. Терминал — [connectbot/termlib](https://github.com/connectbot/termlib),
-SSH — [connectbot/sshlib](https://github.com/connectbot/sshlib). Лицензии зависимостей — Apache-2.0.
+SSH — [connectbot/sshlib](https://github.com/connectbot/sshlib) (Apache-2.0).
+Шрифт — [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) (SIL OFL 1.1).

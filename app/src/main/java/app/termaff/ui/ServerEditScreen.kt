@@ -3,6 +3,7 @@ package app.termaff.ui
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,6 +18,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -33,8 +35,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -54,12 +56,15 @@ fun ServerEditScreen(server: Server?, onDone: () -> Unit) {
     var password by remember { mutableStateOf(Vault.decrypt(s.password)) }
     var key by remember { mutableStateOf(Vault.decrypt(s.key)) }
     var useKey by remember { mutableStateOf(s.key.isNotEmpty()) }
+    // Сохранённый ключ не показываем при открытии — только по кнопке (и по отпечатку, если включён вход)
+    var showKey by remember { mutableStateOf(key.isEmpty()) }
     var tags by remember { mutableStateOf(s.tags.joinToString(", ")) }
     var startup by remember { mutableStateOf(s.startup) }
     val context = LocalContext.current
     val pickKey = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
         runCatching { context.contentResolver.openInputStream(uri)?.use { key = it.reader().readText().take(32_000) } }
+        showKey = key.isEmpty()
     }
     val valid = host.isNotBlank() && user.isNotBlank() && (port.toIntOrNull() ?: 0) in 1..65535
 
@@ -98,11 +103,24 @@ fun ServerEditScreen(server: Server?, onDone: () -> Unit) {
                     SegmentedButton(useKey == (i == 1), { useKey = i == 1 }, SegmentedButtonDefaults.itemShape(i, 2)) { Text(label) }
                 }
             }
-            if (useKey) {
+            if (useKey && !showKey) {
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Card).padding(start = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Filled.Key, null, tint = Accent)
+                    Text("Приватный ключ сохранён", Modifier.weight(1f).padding(start = 12.dp))
+                    TextButton(onClick = {
+                        if (Store.lock && AppLock.available(context)) AppLock.prompt(context, "Показать ключ") { showKey = it }
+                        else showKey = true
+                    }) { Text("Показать") }
+                }
+                TextButton(onClick = { pickKey.launch(arrayOf("*/*")) }) { Text("Заменить из файла") }
+            } else if (useKey) {
                 TextField(
                     key, { key = it }, Modifier.fillMaxWidth(),
                     label = { Text("Приватный ключ (OpenSSH/PEM)") }, minLines = 3, maxLines = 6,
-                    textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = Mono),
                     shape = RoundedCornerShape(12.dp), colors = fieldColors(),
                     keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
                 )

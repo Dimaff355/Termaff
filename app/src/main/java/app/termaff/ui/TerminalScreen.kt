@@ -24,6 +24,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Keyboard
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.ShortText
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -40,6 +41,7 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -52,13 +54,17 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import app.termaff.R
 import app.termaff.ssh.SessionState
 import app.termaff.ssh.SshSession
 import org.connectbot.terminal.ModifierManager
@@ -89,20 +95,41 @@ private class StickyMods : ModifierManager {
 fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit, onReconnect: () -> Unit) {
     val emu = session.emulator
     val mods = remember { StickyMods() }
-    var direct by remember { mutableStateOf(false) }
+    var direct by remember { mutableStateOf(session.altScreen) }
     var line by remember { mutableStateOf(TextFieldValue()) }
+    /** Позиция в истории: history.size — «новая строка». */
+    var histPos by remember { mutableIntStateOf(session.history.size) }
+    val secret = session.secretPrompt
+    val context = LocalContext.current
+    // Системный monospace на части прошивок (MIUI/HyperOS) не моноширинный → буквы «разъезжаются». Свой шрифт.
+    val font = remember { context.resources.getFont(R.font.jetbrains_mono) }
     val termFocus = remember { FocusRequester() }
     val lineFocus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
 
     fun key(k: Int) { emu.dispatchKey(mods.bits, k); mods.clearTransients() }
     fun char(c: Int) { emu.dispatchCharacter(mods.bits, c); mods.clearTransients() }
-    fun sendLine(suffix: String) { session.write(line.text + suffix); line = TextFieldValue() }
+    fun sendLine(suffix: String) {
+        session.addHistory(line.text)
+        session.write(line.text + suffix)
+        line = TextFieldValue()
+        histPos = session.history.size
+    }
+    fun setLine(text: String) { line = TextFieldValue(text, TextRange(text.length)) }
+    /** ↑/↓ в строке ввода листают историю; если она пуста или идёт ввод пароля — стрелка уходит на сервер. */
+    fun arrow(up: Boolean) {
+        val h = session.history
+        if (direct || secret || h.isEmpty()) return key(if (up) VTermKey.UP else VTermKey.DOWN)
+        histPos = (histPos + if (up) -1 else 1).coerceIn(0, h.size)
+        setLine(h.getOrElse(histPos) { "" })
+    }
     fun type(s: String) = if (direct) s.codePoints().forEach(::char) else
         line = TextFieldValue(line.text.replaceRange(line.selection.min, line.selection.max, s),
             TextRange(line.selection.min + s.length))
 
     BackHandler(onBack = onBack)
+    // vim/htop/mc включили альтернативный экран → прямой ввод, вышли → обратно строка ввода
+    LaunchedEffect(session.altScreen) { direct = session.altScreen }
     LaunchedEffect(direct) { runCatching { if (direct) termFocus.requestFocus() else lineFocus.requestFocus() } }
 
     Column(Modifier.fillMaxSize().background(Bg).statusBarsPadding().navigationBarsPadding().imePadding()) {
@@ -126,6 +153,7 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
             Terminal(
                 terminalEmulator = emu,
                 modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
+                typeface = font,
                 initialFontSize = MaterialTheme.typography.bodySmall.fontSize,
                 backgroundColor = Bg,
                 foregroundColor = Text,
@@ -149,7 +177,7 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
             }
         }
 
-        KeysBar(mods, ::key, ::type, onTab = { if (direct || line.text.isEmpty()) key(VTermKey.TAB) else sendLine("\t") })
+        KeysBar(mods, ::key, ::type, ::arrow, onTab = { if (direct || line.text.isEmpty()) key(VTermKey.TAB) else sendLine("\t") })
 
         if (!direct) Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             TextField(
@@ -163,21 +191,29 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
                     }
                 },
                 modifier = Modifier.weight(1f).focusRequester(lineFocus).onPreviewKeyEvent {
-                    // Backspace в пустой строке стирает символ на сервере
-                    if (it.key == Key.Backspace && line.text.isEmpty()) {
-                        if (it.type == KeyEventType.KeyDown) key(VTermKey.BACKSPACE)
-                        true
-                    } else false
+                    val down = it.type == KeyEventType.KeyDown
+                    when {
+                        // Backspace в пустой строке стирает символ на сервере
+                        it.key == Key.Backspace && line.text.isEmpty() -> { if (down) key(VTermKey.BACKSPACE); true }
+                        it.key == Key.DirectionUp || it.key == Key.DirectionDown -> { if (down) arrow(it.key == Key.DirectionUp); true }
+                        else -> false
+                    }
                 },
-                placeholder = { Text("Введите команду…") },
-                textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),
+                placeholder = { Text(if (secret) "Пароль (не сохраняется)" else "Введите команду…") },
+                leadingIcon = if (secret) ({ Icon(Icons.Filled.Lock, null, tint = Accent) }) else null,
+                visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = Mono),
                 singleLine = true,
                 shape = RoundedCornerShape(12.dp),
                 colors = TextFieldDefaults.colors(
                     focusedIndicatorColor = Bg, unfocusedIndicatorColor = Bg,
                     focusedContainerColor = Card, unfocusedContainerColor = Card,
                 ),
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, imeAction = ImeAction.Send),
+                // Пароль: тип Password — клавиатура не подсказывает и не запоминает введённое
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.None, imeAction = ImeAction.Send,
+                    keyboardType = if (secret) KeyboardType.Password else KeyboardType.Text, autoCorrectEnabled = !secret,
+                ),
                 keyboardActions = KeyboardActions(onSend = { sendLine("\r") }),
             )
             FilledIconButton(onClick = { sendLine("\r") }, Modifier.padding(start = 8.dp)) {
@@ -198,7 +234,7 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
 }
 
 @Composable
-private fun KeysBar(mods: StickyMods, key: (Int) -> Unit, type: (String) -> Unit, onTab: () -> Unit) {
+private fun KeysBar(mods: StickyMods, key: (Int) -> Unit, type: (String) -> Unit, arrow: (Boolean) -> Unit, onTab: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -206,14 +242,14 @@ private fun KeysBar(mods: StickyMods, key: (Int) -> Unit, type: (String) -> Unit
         @Composable
         fun k(label: String, selected: Boolean = false, onClick: () -> Unit) = FilterChip(
             selected = selected, onClick = onClick,
-            label = { Text(label, fontFamily = FontFamily.Monospace) },
+            label = { Text(label, fontFamily = Mono) },
         )
         k("Ctrl", mods.ctrl) { mods.ctrl = !mods.ctrl }
         k("Alt", mods.alt) { mods.alt = !mods.alt }
         k("Esc") { key(VTermKey.ESCAPE) }
         k("Tab", onClick = onTab)
-        k("↑") { key(VTermKey.UP) }
-        k("↓") { key(VTermKey.DOWN) }
+        k("↑") { arrow(true) }
+        k("↓") { arrow(false) }
         k("←") { key(VTermKey.LEFT) }
         k("→") { key(VTermKey.RIGHT) }
         for (s in listOf("|", "~", "/", "-", "$", "&", ">")) k(s) { type(s) }

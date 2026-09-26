@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -48,7 +49,7 @@ import app.termaff.data.Store
 import app.termaff.ssh.Sessions
 
 @Composable
-fun ServersScreen(onOpen: (Server) -> Unit, onEdit: (Server?) -> Unit) {
+fun ServersScreen(onOpen: (Server) -> Unit, onEdit: (Server?) -> Unit, onSettings: () -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     var deleting by remember { mutableStateOf<Server?>(null) }
     val q = query.trim()
@@ -69,7 +70,12 @@ fun ServersScreen(onOpen: (Server) -> Unit, onEdit: (Server?) -> Unit) {
             contentPadding = PaddingValues(16.dp, pad.calculateTopPadding() + 16.dp, 16.dp, pad.calculateBottomPadding() + 88.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item { Text("Серверы", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold) }
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Серверы", Modifier.weight(1f), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                    IconButton(onClick = onSettings) { Icon(Icons.Filled.Settings, "Настройки", tint = Muted) }
+                }
+            }
             item {
                 TextField(
                     query, { query = it }, Modifier.fillMaxWidth(),
