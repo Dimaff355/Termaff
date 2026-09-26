@@ -51,6 +51,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
@@ -77,7 +78,6 @@ import app.termaff.data.Store
 import app.termaff.R
 import app.termaff.ssh.SessionState
 import app.termaff.ssh.SshSession
-import org.connectbot.terminal.ModifierManager
 import org.connectbot.terminal.Terminal
 import org.connectbot.terminal.VTermKey
 
@@ -85,15 +85,12 @@ import org.connectbot.terminal.VTermKey
 private const val ALT = 2
 private const val CTRL = 4
 
-/** Липкие Ctrl/Alt с панели клавиш; termlib учитывает их и в прямом режиме. */
-private class StickyMods : ModifierManager {
+/** Липкие Ctrl/Alt с панели клавиш: действуют на следующую клавишу в любом режиме ввода. */
+private class StickyMods {
     var ctrl by mutableStateOf(false)
     var alt by mutableStateOf(false)
     val bits get() = (if (ctrl) CTRL else 0) or (if (alt) ALT else 0)
-    override fun isCtrlActive() = ctrl
-    override fun isAltActive() = alt
-    override fun isShiftActive() = false
-    override fun clearTransients() { ctrl = false; alt = false }
+    fun clearTransients() { ctrl = false; alt = false }
 }
 
 /**
@@ -118,7 +115,7 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
     val autoFont = (LocalConfiguration.current.screenWidthDp - 8) / (80 * 0.6f * LocalDensity.current.fontScale) * 0.97f
     val fontSize = if (Store.fontSize > 0) Store.fontSize else autoFont.coerceIn(6f, 12f)
     val currentFont by rememberUpdatedState(fontSize)
-    val termFocus = remember { FocusRequester() }
+    val directFocus = remember { FocusRequester() }
     val lineFocus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
 
@@ -138,6 +135,17 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
         histPos = (histPos + if (up) -1 else 1).coerceIn(0, h.size)
         setLine(h.getOrElse(histPos) { "" })
     }
+    /** Прямой ввод: с липким Ctrl/Alt первый символ уходит сочетанием (Ctrl+C), остальное — как есть. */
+    fun sendDirect(text: String) {
+        // Enter — всегда обычный \r (иначе libvterm кодирует Ctrl+Enter как CSI 13;5u и shell печатает мусор)
+        if (mods.bits == 0 || text[0] == '\r') { mods.clearTransients(); return session.write(text) }
+        char(text.codePointAt(0))
+        text.substring(Character.charCount(text.codePointAt(0))).takeIf { it.isNotEmpty() }?.let(session::write)
+    }
+    fun focusInput() {
+        runCatching { if (direct) directFocus.requestFocus() else lineFocus.requestFocus() }
+        keyboard?.show()
+    }
     fun type(s: String) = if (direct) s.codePoints().forEach(::char) else
         line = TextFieldValue(line.text.replaceRange(line.selection.min, line.selection.max, s),
             TextRange(line.selection.min + s.length))
@@ -145,7 +153,7 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
     BackHandler(onBack = onBack)
     // vim/htop/mc включили альтернативный экран → прямой ввод, вышли → обратно строка ввода
     LaunchedEffect(session.altScreen) { direct = session.altScreen }
-    LaunchedEffect(direct) { runCatching { if (direct) termFocus.requestFocus() else lineFocus.requestFocus() } }
+    LaunchedEffect(direct) { focusInput() }
 
     Column(Modifier.fillMaxSize().background(Bg).statusBarsPadding().navigationBarsPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -184,11 +192,10 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
                 initialFontSize = fontSize.sp,
                 backgroundColor = Bg,
                 foregroundColor = Text,
-                keyboardEnabled = direct,
-                showSoftKeyboard = direct,
-                focusRequester = termFocus,
-                modifierManager = mods,
-                onTerminalTap = { if (!direct) { lineFocus.requestFocus(); keyboard?.show() } },
+                // Свой ввод (строка или DirectInput) вместо встроенного IME termlib — см. DirectInput.kt
+                keyboardEnabled = false,
+                showSoftKeyboard = false,
+                onTerminalTap = ::focusInput,
             )
             when (val st = session.state) {
                 SessionState.Connecting -> CircularProgressIndicator(Modifier.align(Alignment.Center))
@@ -206,6 +213,11 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
 
         KeysBar(mods, ::key, ::type, ::arrow, onTab = { if (direct || line.text.isEmpty()) key(VTermKey.TAB) else sendLine("\t") })
 
+        if (direct) DirectInput(
+            directFocus, ::sendDirect, ::key,
+            onCtrl = { emu.dispatchCharacter(CTRL or mods.bits, it); mods.clearTransients() },
+            modifier = Modifier.size(1.dp).alpha(0f),
+        )
         if (!direct) Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             TextField(
                 value = line,
