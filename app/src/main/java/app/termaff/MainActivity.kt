@@ -26,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -42,9 +43,12 @@ import app.termaff.ui.AppLock
 import app.termaff.ui.Bg
 import app.termaff.ui.Card
 import app.termaff.ui.CommandsScreen
+import app.termaff.ui.FilesScreen
+import app.termaff.ui.HostKeyDialog
 import app.termaff.ui.KeyEditScreen
 import app.termaff.ui.SnippetEditScreen
 import app.termaff.ui.LockScreen
+import app.termaff.ui.OverviewScreen
 import app.termaff.ui.ServerEditScreen
 import app.termaff.ui.ServersScreen
 import app.termaff.ui.SettingsScreen
@@ -58,8 +62,8 @@ private enum class Tab(val title: String, val icon: ImageVector) {
     Settings("Настройки", Icons.Filled.Settings),
 }
 
-/** Страница поверх вкладок; «назад» с неё возвращает на ту же вкладку. */
-private enum class Page { Tabs, EditServer, EditSnippet, EditKey, Terminal }
+/** Страница поверх вкладок; «назад» возвращает на предыдущую страницу или на ту же вкладку. */
+private enum class Page { EditServer, EditSnippet, EditKey, Terminal, Overview, Files }
 
 class MainActivity : ComponentActivity() {
     private val notifyPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
@@ -84,11 +88,17 @@ class MainActivity : ComponentActivity() {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) setRecentsScreenshotEnabled(!Store.lock)
                 }
                 var tab by remember { mutableStateOf(Tab.Servers) }
-                var page by remember { mutableStateOf(Page.Tabs) }
+                val pages = remember { mutableStateListOf<Page>() }
+                val page = pages.lastOrNull()
+                // Страница уже открыта ниже в стеке (терминал → обзор → терминал) — вернуться к ней, а не плодить копии
+                fun go(p: Page) {
+                    val i = pages.indexOf(p)
+                    if (i < 0) pages += p else while (pages.size > i + 1) pages.removeAt(pages.lastIndex)
+                }
                 var server by remember { mutableStateOf<Server?>(null) }
                 var snippet by remember { mutableStateOf<Snippet?>(null) }
                 var sshKey by remember { mutableStateOf(SshKey()) }
-                val back = { page = Page.Tabs }
+                val back: () -> Unit = { pages.removeLastOrNull() }
                 val session = Sessions.current
                 // Спрашиваем после входа, а не при нажатии: иначе системный диалог перекрыл бы вопрос о ключе сервера
                 LaunchedEffect(session?.state == SessionState.Connected) { if (session?.state == SessionState.Connected) askNotifications() }
@@ -100,25 +110,34 @@ class MainActivity : ComponentActivity() {
                             session = session,
                             onBack = back,
                             onClose = { Sessions.close(session); if (Sessions.current == null) back() },
-                            onReconnect = session::start,
+                            onOverview = { go(Page.Overview) },
+                            onFiles = { go(Page.Files) },
                         )
                     }
+                    page == Page.Overview && session != null -> key(session) {
+                        OverviewScreen(session, back, onTerminal = { go(Page.Terminal) }, onFiles = { go(Page.Files) })
+                    }
+                    page == Page.Files && session != null -> key(session) { FilesScreen(session, back) }
                     page == Page.EditServer -> ServerEditScreen(server, back)
                     page == Page.EditSnippet -> SnippetEditScreen(snippet, back)
                     page == Page.EditKey -> KeyEditScreen(sshKey, back)
+                    // Сессию закрыли, а экран сессии остался в стеке — к вкладкам
+                    page == Page.Terminal || page == Page.Overview || page == Page.Files -> LaunchedEffect(Unit) { pages.clear() }
                     else -> Column(Modifier.fillMaxSize()) {
                         BackHandler(tab != Tab.Servers) { tab = Tab.Servers }
                         Box(Modifier.weight(1f)) {
                             when (tab) {
                                 Tab.Servers -> ServersScreen(
-                                    onOpen = { Sessions.open(it); page = Page.Terminal },
-                                    onEdit = { server = it; page = Page.EditServer },
+                                    onOpen = { Sessions.open(it); go(Page.Terminal) },
+                                    onOverview = { Sessions.open(it); go(Page.Overview) },
+                                    onFiles = { Sessions.open(it); go(Page.Files) },
+                                    onEdit = { server = it; go(Page.EditServer) },
                                 )
                                 Tab.Commands -> CommandsScreen(
-                                    onEdit = { snippet = it; page = Page.EditSnippet },
-                                    onRun = { Sessions.current?.run(it); page = Page.Terminal },
+                                    onEdit = { snippet = it; go(Page.EditSnippet) },
+                                    onRun = { Sessions.current?.run(it); go(Page.Terminal) },
                                 )
-                                Tab.Settings -> SettingsScreen(onEditKey = { sshKey = it; page = Page.EditKey })
+                                Tab.Settings -> SettingsScreen(onEditKey = { sshKey = it; go(Page.EditKey) })
                             }
                         }
                         NavigationBar(containerColor = Card) {
@@ -134,6 +153,8 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+                // Вопрос о ключе нового сервера — поверх любого экрана (подключение могли начать из обзора или файлов)
+                if (!AppLock.locked) Sessions.list.firstNotNullOfOrNull { it.hostKeyPrompt }?.let { HostKeyDialog(it) }
             }
         }
     }

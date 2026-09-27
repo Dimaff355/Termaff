@@ -51,7 +51,7 @@ import app.termaff.ssh.Sessions
 import java.util.UUID
 
 @Composable
-fun ServersScreen(onOpen: (Server) -> Unit, onEdit: (Server?) -> Unit) {
+fun ServersScreen(onOpen: (Server) -> Unit, onOverview: (Server) -> Unit, onFiles: (Server) -> Unit, onEdit: (Server?) -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     var deleting by remember { mutableStateOf<Server?>(null) }
     val q = query.trim()
@@ -83,7 +83,7 @@ fun ServersScreen(onOpen: (Server) -> Unit, onEdit: (Server?) -> Unit) {
                     singleLine = true, shape = RoundedCornerShape(16.dp), colors = fieldColors(),
                 )
             }
-            items(list, key = { it.id }) { s -> ServerCard(s, onOpen, onEdit, onDelete = { deleting = s }) }
+            items(list, key = { it.id }) { s -> ServerCard(s, onOpen, onOverview, onFiles, onEdit, onDelete = { deleting = s }) }
             if (Store.servers.isEmpty()) item {
                 Text("Пока пусто. Нажмите «+», чтобы добавить сервер.", color = Muted, modifier = Modifier.padding(top = 32.dp))
             }
@@ -101,7 +101,10 @@ fun ServersScreen(onOpen: (Server) -> Unit, onEdit: (Server?) -> Unit) {
 }
 
 @Composable
-private fun ServerCard(s: Server, onOpen: (Server) -> Unit, onEdit: (Server) -> Unit, onDelete: () -> Unit) {
+private fun ServerCard(
+    s: Server, onOpen: (Server) -> Unit, onOverview: (Server) -> Unit, onFiles: (Server) -> Unit,
+    onEdit: (Server) -> Unit, onDelete: () -> Unit,
+) {
     var menu by remember { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Card).clickable { onOpen(s) }.padding(16.dp),
@@ -122,6 +125,8 @@ private fun ServerCard(s: Server, onOpen: (Server) -> Unit, onEdit: (Server) -> 
         Box {
             IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "Меню", tint = Muted) }
             DropdownMenu(menu, { menu = false }) {
+                DropdownMenuItem({ Text("Обзор") }, { menu = false; onOverview(s) })
+                DropdownMenuItem({ Text("Файлы") }, { menu = false; onFiles(s) })
                 DropdownMenuItem({ Text("Изменить") }, { menu = false; onEdit(s) })
                 DropdownMenuItem({ Text("Копировать") }, {
                     menu = false

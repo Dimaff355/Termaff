@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -27,14 +28,19 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.ShortText
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -82,6 +88,7 @@ import androidx.compose.ui.unit.sp
 import app.termaff.data.Snippet
 import app.termaff.data.Store
 import app.termaff.R
+import app.termaff.ssh.HostKeyPrompt
 import app.termaff.ssh.SessionState
 import app.termaff.ssh.Sessions
 import app.termaff.ssh.SshSession
@@ -106,7 +113,7 @@ private class StickyMods {
  * - прямой режим: клавиатура пишет прямо в PTY (vim, htop, mc, пароли).
  */
 @Composable
-fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit, onReconnect: () -> Unit) {
+fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit, onOverview: () -> Unit, onFiles: () -> Unit) {
     val emu = session.emulator
     val mods = remember { StickyMods() }
     var direct by remember { mutableStateOf(session.altScreen) }
@@ -162,18 +169,18 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
     LaunchedEffect(theme) { emu.applyColorScheme(theme.ansi, theme.fg.toArgb(), theme.bg.toArgb()) }
 
     Column(Modifier.fillMaxSize().background(Bg).statusBarsPadding().navigationBarsPadding().imePadding()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") }
-            val t = session.target
-            Box(Modifier.size(8.dp).background(if (session.state == SessionState.Connected) Accent else Muted, CircleShape))
-            Column(Modifier.weight(1f).padding(start = 8.dp)) {
-                Text(t.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
-                Text("${t.user}@${t.host}" + if (t.port == 22) "" else ":${t.port}", color = Muted,
-                    style = MaterialTheme.typography.bodySmall, maxLines = 1)
-            }
+        SessionHeader(session, onBack) {
             IconButton(onClick = { direct = !direct }) {
                 Icon(if (direct) Icons.Filled.ShortText else Icons.Filled.Keyboard,
                     if (direct) "Строка ввода" else "Прямой ввод", tint = if (direct) Accent else Text)
+            }
+            Box {
+                var menu by remember { mutableStateOf(false) }
+                IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "Меню") }
+                DropdownMenu(menu, { menu = false }) {
+                    DropdownMenuItem({ Text("Обзор") }, { menu = false; onOverview() }, leadingIcon = { Icon(Icons.Filled.BarChart, null) })
+                    DropdownMenuItem({ Text("Файлы") }, { menu = false; onFiles() }, leadingIcon = { Icon(Icons.Filled.Folder, null) })
+                }
             }
             IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Отключиться") }
         }
@@ -204,18 +211,7 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
                 showSoftKeyboard = false,
                 onTerminalTap = ::focusInput,
             )
-            when (val st = session.state) {
-                SessionState.Connecting -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                is SessionState.Closed -> Column(
-                    Modifier.align(Alignment.Center).background(Card, RoundedCornerShape(16.dp)).padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Text(st.error ?: "Соединение закрыто", color = if (st.error != null) Danger else Muted)
-                    Button(onClick = onReconnect) { Text("Переподключиться") }
-                }
-                SessionState.Connected -> Unit
-            }
+            SessionStatus(session, Modifier.align(Alignment.Center))
         }
 
         SnippetsBar(session.target.serverId, onRun = session::run, onInsert = { if (!direct) setLine(it) })
@@ -268,17 +264,50 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
             }
         }
     }
+}
 
-    session.hostKeyPrompt?.let { p ->
-        AlertDialog(
-            onDismissRequest = { p.answer.complete(false) },
-            title = { Text("Новый сервер") },
-            text = { Text("Отпечаток ключа ${p.host}:\n\n${p.fingerprint}\n\nСверьте его с сервером. Доверять?") },
-            confirmButton = { TextButton(onClick = { p.answer.complete(true) }) { Text("Доверять") } },
-            dismissButton = { TextButton(onClick = { p.answer.complete(false) }) { Text("Отмена") } },
-        )
+/** Шапка экранов сессии: назад, точка-статус, имя и адрес сервера, свои кнопки справа. */
+@Composable
+fun SessionHeader(session: SshSession, onBack: () -> Unit, actions: @Composable RowScope.() -> Unit = {}) = Row(
+    Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically,
+) {
+    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") }
+    val t = session.target
+    Box(Modifier.size(8.dp).background(if (session.state == SessionState.Connected) Accent else Muted, CircleShape))
+    Column(Modifier.weight(1f).padding(start = 8.dp)) {
+        Text(t.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+        Text("${t.user}@${t.host}" + if (t.port == 22) "" else ":${t.port}", color = Muted,
+            style = MaterialTheme.typography.bodySmall, maxLines = 1)
+    }
+    actions()
+}
+
+/** Подключение идёт — индикатор; закрыто — причина и «Переподключиться»; подключено — ничего. */
+@Composable
+fun SessionStatus(session: SshSession, modifier: Modifier = Modifier) {
+    when (val st = session.state) {
+        SessionState.Connecting -> CircularProgressIndicator(modifier)
+        is SessionState.Closed -> Column(
+            modifier.background(Card, RoundedCornerShape(16.dp)).padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(st.error ?: "Соединение закрыто", color = if (st.error != null) Danger else Muted)
+            Button(onClick = session::start) { Text("Переподключиться") }
+        }
+        SessionState.Connected -> Unit
     }
 }
+
+/** TOFU: новый сервер — показать отпечаток и спросить. Показывается поверх любого экрана. */
+@Composable
+fun HostKeyDialog(p: HostKeyPrompt) = AlertDialog(
+    onDismissRequest = { p.answer.complete(false) },
+    title = { Text("Новый сервер") },
+    text = { Text("Отпечаток ключа ${p.host}:\n\n${p.fingerprint}\n\nСверьте его с сервером. Доверять?") },
+    confirmButton = { TextButton(onClick = { p.answer.complete(true) }) { Text("Доверять") } },
+    dismissButton = { TextButton(onClick = { p.answer.complete(false) }) { Text("Отмена") } },
+)
 
 /**
  * Размер шрифта терминала, sp. Авто — 80 колонок по ширине экрана (под них рассчитаны fastfetch, mc, htop),

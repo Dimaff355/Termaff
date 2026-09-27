@@ -189,6 +189,21 @@ class SshSession(val target: Target) {
         secretPrompt = SECRET_PROMPT.containsMatchIn(String(buf, from, n - from).replace(ANSI, ""))
     }
 
+    /** Соединение, пока вход выполнен: обзор и SFTP открывают свои каналы поверх него — без второго входа. */
+    val connection: Connection? get() = conn.takeIf { state == SessionState.Connected }
+
+    /** Выполнить скрипт в `sh` (через stdin: без экранирования и независимо от shell пользователя), вернуть вывод. */
+    fun exec(script: String): String {
+        val s = checkNotNull(connection) { "Нет соединения" }.openSession()
+        try {
+            s.execCommand("sh")
+            s.stdin.use { it.write(script.toByteArray()) }
+            return s.stdout.readBytes().decodeToString()
+        } finally {
+            s.close()
+        }
+    }
+
     fun addHistory(command: String) {
         if (command.isBlank() || secretPrompt || history.lastOrNull() == command) return
         history += command
