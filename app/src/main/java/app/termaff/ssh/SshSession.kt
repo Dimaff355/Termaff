@@ -3,6 +3,7 @@ package app.termaff.ssh
 import android.util.Base64
 import app.termaff.data.Server
 import app.termaff.data.Snippet
+import app.termaff.data.SshKey
 import app.termaff.data.Store
 import app.termaff.data.Vault
 import androidx.compose.runtime.getValue
@@ -41,9 +42,14 @@ class Target(
     val password: String,
     /** Приватный ключ в PEM/OpenSSH-формате; пустой — вход по паролю. */
     val key: String,
+    /** Пароль ключа (если вход по ключу). */
+    val passphrase: String,
     val startup: String,
 ) {
-    constructor(s: Server) : this(s.id, s.title, s.host, s.port, s.user, Vault.decrypt(s.password), Vault.decrypt(s.key), s.startup)
+    constructor(s: Server, k: SshKey? = Store.key(s.keyId)) : this(
+        s.id, s.title, s.host, s.port, s.user, Vault.decrypt(s.password),
+        k?.let { Vault.decrypt(it.private) }.orEmpty(), k?.let { Vault.decrypt(it.passphrase) }.orEmpty(), s.startup,
+    )
 }
 
 /** Запрос пользователю: доверять ли ключу сервера. */
@@ -191,7 +197,7 @@ class SshSession(val target: Target) {
 
     private fun authenticate(c: Connection): Boolean {
         val t = target
-        if (t.key.isNotBlank()) return c.authenticateWithPublicKey(t.user, pemLines(t.key).toCharArray(), t.password.ifEmpty { null })
+        if (t.key.isNotBlank()) return c.authenticateWithPublicKey(t.user, pemLines(t.key).toCharArray(), t.passphrase.ifEmpty { null })
         val methods = c.getRemainingAuthMethods(t.user)
         if ("password" in methods && c.authenticateWithPassword(t.user, t.password)) return true
         // Многие серверы принимают пароль только через keyboard-interactive (PAM)
@@ -254,12 +260,3 @@ private val Exception.text get() = message ?: javaClass.simpleName
 private val ALT_SCREEN = Regex("\u001b\\[\\?(?:1049|1047|47)([hl])")
 private val ANSI = Regex("\u001b\\[[0-9;?]*[ -/]*[@-~]")
 private val SECRET_PROMPT = Regex("(?i)(password|passphrase|пароль)[^\n]*:\\s*$")
-
-/** Ключ, вставленный одной строкой (мессенджеры съедают переносы), возвращаем к PEM-виду по строкам. */
-internal fun pemLines(key: String): String {
-    val k = key.trim()
-    if ('\n' in k) return k
-    val m = Regex("(-----BEGIN [A-Z ]+-----)(.+)(-----END [A-Z ]+-----)").find(k) ?: return k
-    val (begin, body, end) = m.destructured
-    return (listOf(begin) + body.trim().split(Regex("\\s+")) + end).joinToString("\n")
-}

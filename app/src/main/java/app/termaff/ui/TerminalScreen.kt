@@ -56,6 +56,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -115,10 +116,8 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
     val context = LocalContext.current
     // Системный monospace на части прошивок (MIUI/HyperOS) не моноширинный → буквы «разъезжаются». Свой шрифт.
     val font = remember { context.resources.getFont(R.font.jetbrains_mono) }
-    // Авто-размер: 80 колонок по ширине экрана (под них рассчитаны fastfetch, mc, htop), не крупнее 12 sp.
-    // Ширина символа JetBrains Mono — 0.6 em; 0.97 — запас на округление ширины ячейки в termlib.
-    val autoFont = (LocalConfiguration.current.screenWidthDp - 8) / (80 * 0.6f * LocalDensity.current.fontScale) * 0.97f
-    val fontSize = if (Store.fontSize > 0) Store.fontSize else autoFont.coerceIn(6f, 12f)
+    val fontSize = terminalFontSize()
+    val theme = termTheme(Store.theme)
     val currentFont by rememberUpdatedState(fontSize)
     val directFocus = remember { FocusRequester() }
     val lineFocus = remember { FocusRequester() }
@@ -159,6 +158,7 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
     // vim/htop/mc включили альтернативный экран → прямой ввод, вышли → обратно строка ввода
     LaunchedEffect(session.altScreen) { direct = session.altScreen }
     LaunchedEffect(direct) { focusInput() }
+    LaunchedEffect(theme) { emu.applyColorScheme(theme.ansi, theme.fg.toArgb(), theme.bg.toArgb()) }
 
     Column(Modifier.fillMaxSize().background(Bg).statusBarsPadding().navigationBarsPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -180,7 +180,7 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
 
         // Щипок в termlib только визуальный (сбрасывается после жеста) — по его итогу меняем шрифт по-настоящему:
         // терминал пересчитывает колонки и сообщает серверу новый размер
-        Box(Modifier.weight(1f).fillMaxWidth().pointerInput(Unit) {
+        Box(Modifier.weight(1f).fillMaxWidth().background(theme.bg).pointerInput(Unit) {
             awaitEachGesture {
                 awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                 var zoom = 1f
@@ -196,8 +196,8 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
                 modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
                 typeface = font,
                 initialFontSize = fontSize.sp,
-                backgroundColor = Bg,
-                foregroundColor = Text,
+                backgroundColor = theme.bg,
+                foregroundColor = theme.fg,
                 // Свой ввод (строка или DirectInput) вместо встроенного IME termlib — см. DirectInput.kt
                 keyboardEnabled = false,
                 showSoftKeyboard = false,
@@ -277,6 +277,17 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
             dismissButton = { TextButton(onClick = { p.answer.complete(false) }) { Text("Отмена") } },
         )
     }
+}
+
+/**
+ * Размер шрифта терминала, sp. Авто — 80 колонок по ширине экрана (под них рассчитаны fastfetch, mc, htop),
+ * не крупнее 12 sp. Ширина символа JetBrains Mono — 0.6 em; 0.97 — запас на округление ширины ячейки в termlib.
+ */
+@Composable
+fun terminalFontSize(): Float {
+    if (Store.fontSize > 0) return Store.fontSize
+    val auto = (LocalConfiguration.current.screenWidthDp - 8) / (80 * 0.6f * LocalDensity.current.fontScale) * 0.97f
+    return auto.coerceIn(6f, 12f)
 }
 
 /** Переключатель открытых сессий (виден, когда их больше одной). */

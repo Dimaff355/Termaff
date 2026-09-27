@@ -1,9 +1,6 @@
 package app.termaff.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,6 +9,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -19,6 +18,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -35,8 +35,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -45,7 +43,7 @@ import app.termaff.data.Server
 import app.termaff.data.Store
 import app.termaff.data.Vault
 
-/** Добавление/редактирование сервера. Секреты расшифровываются только на время редактирования и не попадают в Bundle. */
+/** Добавление/редактирование сервера. Пароль расшифровывается только на время редактирования и не попадает в Bundle. */
 @Composable
 fun ServerEditScreen(server: Server?, onDone: () -> Unit) {
     val s = server ?: Server()
@@ -54,25 +52,17 @@ fun ServerEditScreen(server: Server?, onDone: () -> Unit) {
     var port by remember { mutableStateOf(s.port.toString()) }
     var user by remember { mutableStateOf(s.user) }
     var password by remember { mutableStateOf(Vault.decrypt(s.password)) }
-    var key by remember { mutableStateOf(Vault.decrypt(s.key)) }
-    var useKey by remember { mutableStateOf(s.key.isNotEmpty()) }
-    // Сохранённый ключ не показываем при открытии — только по кнопке (и по отпечатку, если включён вход)
-    var showKey by remember { mutableStateOf(key.isEmpty()) }
+    var keyId by remember { mutableStateOf(s.keyId.takeIf { Store.key(it) != null }.orEmpty()) }
+    var useKey by remember { mutableStateOf(keyId.isNotEmpty()) }
     var tags by remember { mutableStateOf(s.tags.joinToString(", ")) }
     var startup by remember { mutableStateOf(s.startup) }
-    val context = LocalContext.current
-    val pickKey = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri ?: return@rememberLauncherForActivityResult
-        runCatching { context.contentResolver.openInputStream(uri)?.use { key = it.reader().readText().take(32_000) } }
-        showKey = key.isEmpty()
-    }
-    val valid = host.isNotBlank() && user.isNotBlank() && (port.toIntOrNull() ?: 0) in 1..65535
+    val valid = host.isNotBlank() && user.isNotBlank() && (port.toIntOrNull() ?: 0) in 1..65535 && (!useKey || keyId.isNotEmpty())
 
     fun save() {
         Store.save(
             s.copy(
                 name = name.trim(), host = host.trim(), port = port.toInt(), user = user.trim(),
-                password = Vault.encrypt(password), key = if (useKey) Vault.encrypt(key.trim()) else "",
+                password = if (useKey) "" else Vault.encrypt(password), keyId = if (useKey) keyId else "",
                 tags = tags.split(',').map(String::trim).filter(String::isNotEmpty),
                 startup = startup.trim(),
             ),
@@ -100,34 +90,20 @@ fun ServerEditScreen(server: Server?, onDone: () -> Unit) {
             }
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 listOf("Пароль", "Ключ").forEachIndexed { i, label ->
-                    SegmentedButton(useKey == (i == 1), { useKey = i == 1 }, SegmentedButtonDefaults.itemShape(i, 2)) { Text(label) }
+                    SegmentedButton(useKey == (i == 1), {
+                        useKey = i == 1
+                        if (useKey && keyId.isEmpty()) keyId = Store.keys.singleOrNull()?.id.orEmpty()
+                    }, SegmentedButtonDefaults.itemShape(i, 2)) { Text(label) }
                 }
             }
-            if (useKey && !showKey) {
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Card).padding(start = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Filled.Key, null, tint = Accent)
-                    Text("Приватный ключ сохранён", Modifier.weight(1f).padding(start = 12.dp))
-                    TextButton(onClick = {
-                        if (Store.lock && AppLock.available(context)) AppLock.prompt(context, "Показать ключ") { showKey = it }
-                        else showKey = true
-                    }) { Text("Показать") }
+            if (!useKey) Field(password, { password = it }, "Пароль", KeyboardType.Password, visual = PasswordVisualTransformation())
+            else if (Store.keys.isEmpty()) Text("Ключей пока нет. Создайте или импортируйте ключ в Настройках.", color = Muted)
+            else Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Store.keys.forEach { k ->
+                    FilterChip(keyId == k.id, { keyId = k.id }, { Text(k.name) },
+                        leadingIcon = { Icon(Icons.Filled.Key, null, Modifier.size(18.dp)) })
                 }
-                TextButton(onClick = { pickKey.launch(arrayOf("*/*")) }) { Text("Заменить из файла") }
-            } else if (useKey) {
-                TextField(
-                    key, { key = it }, Modifier.fillMaxWidth(),
-                    label = { Text("Приватный ключ (OpenSSH/PEM)") }, minLines = 3, maxLines = 6,
-                    textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = Mono),
-                    shape = RoundedCornerShape(12.dp), colors = fieldColors(),
-                    keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
-                )
-                TextButton(onClick = { pickKey.launch(arrayOf("*/*")) }) { Text("Загрузить ключ из файла") }
             }
-            Field(password, { password = it }, if (useKey) "Пароль ключа (если есть)" else "Пароль",
-                KeyboardType.Password, visual = PasswordVisualTransformation())
             Field(tags, { tags = it }, "Теги через запятую")
             Field(startup, { startup = it }, "Команда после входа (необязательно)")
         }

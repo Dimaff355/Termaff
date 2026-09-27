@@ -31,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import app.termaff.data.Server
 import app.termaff.data.Snippet
+import app.termaff.data.SshKey
 import app.termaff.data.Store
 import app.termaff.ssh.SessionState
 import app.termaff.ssh.Sessions
@@ -41,6 +42,7 @@ import app.termaff.ui.AppLock
 import app.termaff.ui.Bg
 import app.termaff.ui.Card
 import app.termaff.ui.CommandsScreen
+import app.termaff.ui.KeyEditScreen
 import app.termaff.ui.SnippetEditScreen
 import app.termaff.ui.LockScreen
 import app.termaff.ui.ServerEditScreen
@@ -57,7 +59,7 @@ private enum class Tab(val title: String, val icon: ImageVector) {
 }
 
 /** Страница поверх вкладок; «назад» с неё возвращает на ту же вкладку. */
-private enum class Page { Tabs, EditServer, EditSnippet, Terminal }
+private enum class Page { Tabs, EditServer, EditSnippet, EditKey, Terminal }
 
 class MainActivity : ComponentActivity() {
     private val notifyPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
@@ -85,6 +87,7 @@ class MainActivity : ComponentActivity() {
                 var page by remember { mutableStateOf(Page.Tabs) }
                 var server by remember { mutableStateOf<Server?>(null) }
                 var snippet by remember { mutableStateOf<Snippet?>(null) }
+                var sshKey by remember { mutableStateOf(SshKey()) }
                 val back = { page = Page.Tabs }
                 val session = Sessions.current
                 // Спрашиваем после входа, а не при нажатии: иначе системный диалог перекрыл бы вопрос о ключе сервера
@@ -102,6 +105,7 @@ class MainActivity : ComponentActivity() {
                     }
                     page == Page.EditServer -> ServerEditScreen(server, back)
                     page == Page.EditSnippet -> SnippetEditScreen(snippet, back)
+                    page == Page.EditKey -> KeyEditScreen(sshKey, back)
                     else -> Column(Modifier.fillMaxSize()) {
                         BackHandler(tab != Tab.Servers) { tab = Tab.Servers }
                         Box(Modifier.weight(1f)) {
@@ -114,7 +118,7 @@ class MainActivity : ComponentActivity() {
                                     onEdit = { snippet = it; page = Page.EditSnippet },
                                     onRun = { Sessions.current?.run(it); page = Page.Terminal },
                                 )
-                                Tab.Settings -> SettingsScreen()
+                                Tab.Settings -> SettingsScreen(onEditKey = { sshKey = it; page = Page.EditKey })
                             }
                         }
                         NavigationBar(containerColor = Card) {
