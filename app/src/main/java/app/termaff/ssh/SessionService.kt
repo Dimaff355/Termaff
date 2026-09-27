@@ -30,6 +30,12 @@ class SessionService : Service() {
         } else {
             startForeground(ID, n)
         }
+        // Сессии могли закрыться раньше, чем система запустила сервис (неверный порт — отказ за миллисекунды).
+        // stopService до startForeground роняет приложение, поэтому такой запуск гасим здесь, уже после startForeground
+        synchronized(Companion) {
+            started = true
+            if (!running) { started = false; stopSelf(startId) }
+        }
         return START_NOT_STICKY
     }
 
@@ -39,6 +45,8 @@ class SessionService : Service() {
         private const val STOP = "stop"
         /** Сервис запрошен (флаг ставим сразу, не дожидаясь onStartCommand/onDestroy). */
         @Volatile private var running = false
+        /** Сервис уже вызвал startForeground — только теперь его можно останавливать через stopService. */
+        private var started = false
         @Volatile private var titles = emptyList<String>()
 
         /** Запустить/обновить/остановить сервис по списку живых сессий. */
@@ -48,7 +56,10 @@ class SessionService : Service() {
             titles = live
             val intent = Intent(context, SessionService::class.java)
             when {
-                live.isEmpty() -> { running = false; context.stopService(intent) }
+                live.isEmpty() -> {
+                    running = false
+                    if (started) { started = false; context.stopService(intent) }
+                }
                 // Запуск — из UI (подключение); из фона Android 12+ его запрещает, дальше только обновляем уведомление
                 !running -> running = runCatching { context.startForegroundService(intent) }.isSuccess
                 else -> context.getSystemService(NotificationManager::class.java).notify(ID, notification(context, live))
