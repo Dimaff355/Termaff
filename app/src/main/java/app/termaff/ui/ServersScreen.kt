@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import app.termaff.data.Server
 import app.termaff.data.Store
 import app.termaff.ssh.Sessions
+import java.util.UUID
 
 @Composable
 fun ServersScreen(onOpen: (Server) -> Unit, onEdit: (Server?) -> Unit) {
@@ -122,6 +123,10 @@ private fun ServerCard(s: Server, onOpen: (Server) -> Unit, onEdit: (Server) -> 
             IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "Меню", tint = Muted) }
             DropdownMenu(menu, { menu = false }) {
                 DropdownMenuItem({ Text("Изменить") }, { menu = false; onEdit(s) })
+                DropdownMenuItem({ Text("Копировать") }, {
+                    menu = false
+                    Store.save(s.copy(id = UUID.randomUUID().toString(), name = "${s.title} (копия)"))
+                })
                 DropdownMenuItem({ Text("Удалить", color = Danger) }, { menu = false; onDelete() })
             }
         }

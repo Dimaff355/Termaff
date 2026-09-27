@@ -17,6 +17,8 @@ val Accent = Color(0xFF2EE6A6)
 val Text = Color(0xFFE6EAED)
 val Muted = Color(0xFF8A949C)
 val Danger = Color(0xFFFF5C5C)
+/** Заливка выбранного (чипы, сегменты, липкие Ctrl/Alt) — приглушённый акцент. */
+val Selected = Color(0xFF1C3A30)
 
 /** Моноширинный шрифт приложения (строка ввода, панель клавиш, ключи) — тот же, что в терминале. */
 val Mono = FontFamily(Font(R.font.jetbrains_mono))
@@ -34,6 +36,10 @@ fun TermaffTheme(content: @Composable () -> Unit) = MaterialTheme(
         onSurfaceVariant = Muted,
         surfaceContainer = Card,
         surfaceContainerHigh = Card,
+        // Выбранные FilterChip/SegmentedButton берут secondaryContainer — по умолчанию он сиреневый
+        secondaryContainer = Selected,
+        onSecondaryContainer = Accent,
+        outlineVariant = Color(0xFF2A3136),
         error = Danger,
     ),
 ) {

@@ -2,6 +2,7 @@ package app.termaff.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -166,8 +167,8 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
             val t = session.target
             Box(Modifier.size(8.dp).background(if (session.state == SessionState.Connected) Accent else Muted, CircleShape))
             Column(Modifier.weight(1f).padding(start = 8.dp)) {
-                Text("${t.user}@${t.host}", style = MaterialTheme.typography.titleMedium, maxLines = 1)
-                Text(if (t.port == 22) t.host else "${t.host}:${t.port}", color = Muted,
+                Text(t.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                Text("${t.user}@${t.host}" + if (t.port == 22) "" else ":${t.port}", color = Muted,
                     style = MaterialTheme.typography.bodySmall, maxLines = 1)
             }
             IconButton(onClick = { direct = !direct }) {
@@ -334,13 +335,14 @@ private fun SnippetsBar(serverId: String, onRun: (Snippet) -> Unit, onInsert: (S
 @Composable
 private fun KeysBar(mods: StickyMods, key: (Int) -> Unit, type: (String) -> Unit, arrow: (Boolean) -> Unit, onTab: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         @Composable
-        fun k(label: String, selected: Boolean = false, onClick: () -> Unit) = FilterChip(
-            selected = selected, onClick = onClick,
-            label = { Text(label, fontFamily = Mono) },
+        fun k(label: String, selected: Boolean = false, onClick: () -> Unit) = Text(
+            label, color = if (selected) Accent else Text, fontFamily = Mono,
+            modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(if (selected) Selected else Card)
+                .clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 10.dp),
         )
         k("Ctrl", mods.ctrl) { mods.ctrl = !mods.ctrl }
         k("Alt", mods.alt) { mods.alt = !mods.alt }

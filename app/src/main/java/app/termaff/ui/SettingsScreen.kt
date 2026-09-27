@@ -30,14 +30,17 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -68,7 +71,22 @@ fun SettingsScreen(onEditKey: (SshKey) -> Unit) {
         TerminalSettings()
         Section("Безопасность")
         LockSetting()
+        About()
     }
+}
+
+/** Версия и ссылка на исходники (там же релизы с обновлениями). */
+@Composable
+private fun About() {
+    val context = LocalContext.current
+    val uri = LocalUriHandler.current
+    val version = remember { context.packageManager.getPackageInfo(context.packageName, 0).versionName }
+    Text(
+        "Termaff $version · github.com/Dimaff355/Termaff", color = Muted, style = MaterialTheme.typography.bodySmall,
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+            .clickable { uri.openUri("https://github.com/Dimaff355/Termaff") }.padding(vertical = 12.dp),
+        textAlign = TextAlign.Center,
+    )
 }
 
 @Composable
