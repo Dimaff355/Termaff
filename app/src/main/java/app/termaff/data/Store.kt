@@ -2,6 +2,7 @@ package app.termaff.data
 
 import android.content.Context
 import app.termaff.ssh.Keys
+import app.termaff.tr
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -42,12 +43,12 @@ data class Snippet(
     val id: String = UUID.randomUUID().toString(),
     val name: String = "",
     val command: String = "",
-    /** Сервер, для которого команда; пусто — для всех. */
-    val serverId: String = "",
+    /** Серверы, для которых команда; пусто — для всех. */
+    val serverIds: List<String> = emptyList(),
 ) {
     val steps get() = command.lines().map(String::trim).filter(String::isNotEmpty)
     val title get() = name.ifBlank { steps.firstOrNull().orEmpty() }
-    fun fits(serverId: String) = this.serverId.isEmpty() || this.serverId == serverId
+    fun fits(serverId: String) = serverIds.isEmpty() || serverId in serverIds
 }
 
 /** Всё состояние приложения — один JSON-файл в приватной папке. Записи атомарные (tmp + rename). */
@@ -79,6 +80,10 @@ object Store {
     var theme by mutableStateOf("")
         private set
 
+    /** Язык интерфейса: ru/en/zh; пусто — как в системе. */
+    var lang by mutableStateOf("")
+        private set
+
     fun init(context: Context) {
         if (::file.isInitialized) return
         file = File(context.filesDir, "state.json")
@@ -89,9 +94,12 @@ object Store {
         servers = if (servers.any { it.id == server.id }) servers.map { if (it.id == server.id) server else it } else servers + server
     }
 
+    /** Команды, привязанные только к этому серверу, удаляются вместе с ним (иначе стали бы общими для всех). */
     fun delete(id: String) = update {
         servers = servers.filter { it.id != id }
-        snippets = snippets.filter { it.serverId != id }
+        snippets = snippets.mapNotNull { s ->
+            if (id !in s.serverIds) s else s.copy(serverIds = s.serverIds - id).takeIf { it.serverIds.isNotEmpty() }
+        }
     }
 
     fun save(snippet: Snippet) = update {
@@ -117,6 +125,8 @@ object Store {
     fun saveFontSize(sp: Float) = update { fontSize = sp }
 
     fun saveTheme(id: String) = update { theme = id }
+
+    fun saveLang(code: String) = update { lang = code }
 
     fun trustHost(hostPort: String, fingerprint: String) = update { knownHosts = knownHosts + (hostPort to fingerprint) }
 
@@ -157,7 +167,7 @@ object Store {
                 val id = migrated.getOrPut(pem) {
                     val pass = Vault.decrypt(server.password)
                     val public = runCatching { Keys.publicKey(pem, pass, "termaff") }.getOrDefault("")
-                    SshKey(name = "Ключ ${server.title}", private = inline, passphrase = server.password, public = public)
+                    SshKey(name = tr("Ключ %s", server.title), private = inline, passphrase = server.password, public = public)
                         .also { keys = keys + it }.id
                 }
                 server = server.copy(keyId = id, password = "")
@@ -167,13 +177,17 @@ object Store {
         val sn = o.optJSONArray("snippets") ?: JSONArray()
         snippets = (0 until sn.length()).map { i ->
             val s = sn.getJSONObject(i)
-            Snippet(s.getString("id"), s.optString("name"), s.optString("command"), s.optString("server"))
+            // До 0.8.0 команда привязывалась к одному серверу: строка "server"
+            val ids = s.optJSONArray("servers")?.let { a -> (0 until a.length()).map(a::getString) }
+                ?: listOf(s.optString("server")).filter(String::isNotEmpty)
+            Snippet(s.getString("id"), s.optString("name"), s.optString("command"), ids)
         }
         val hosts = o.optJSONObject("knownHosts") ?: JSONObject()
         knownHosts = hosts.keys().asSequence().associateWith(hosts::getString)
         lock = o.optBoolean("lock")
         fontSize = o.optDouble("font", 0.0).toFloat()
         theme = o.optString("theme")
+        lang = o.optString("lang")
         return migrated.isNotEmpty()
     }
 
@@ -185,7 +199,7 @@ object Store {
                 .put("password", s.password).put("keyId", s.keyId).put("tags", JSONArray(s.tags)).put("startup", s.startup)
         }))
         .put("snippets", JSONArray(snippets.map { s ->
-            JSONObject().put("id", s.id).put("name", s.name).put("command", s.command).put("server", s.serverId)
+            JSONObject().put("id", s.id).put("name", s.name).put("command", s.command).put("servers", JSONArray(s.serverIds))
         }))
         .put("keys", JSONArray(keys.map { k ->
             JSONObject().put("id", k.id).put("name", k.name).put("private", k.private)
@@ -195,4 +209,5 @@ object Store {
         .put("lock", lock)
         .put("font", fontSize.toDouble())
         .put("theme", theme)
+        .put("lang", lang)
 }

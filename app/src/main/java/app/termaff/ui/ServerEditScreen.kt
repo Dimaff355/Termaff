@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import app.termaff.data.Server
 import app.termaff.data.Store
 import app.termaff.data.Vault
+import app.termaff.tr
 
 /** Добавление/редактирование сервера. Пароль расшифровывается только на время редактирования и не попадает в Bundle. */
 @Composable
@@ -73,39 +74,39 @@ fun ServerEditScreen(server: Server?, onDone: () -> Unit) {
     BackHandler(onBack = onDone)
     Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onDone) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") }
-            Text(if (server == null) "Новый сервер" else "Изменить", style = MaterialTheme.typography.titleLarge,
+            IconButton(onClick = onDone) { Icon(Icons.AutoMirrored.Filled.ArrowBack, tr("Назад")) }
+            Text(if (server == null) tr("Новый сервер") else tr("Изменить"), style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.weight(1f))
-            TextButton(onClick = ::save, enabled = valid) { Text("Сохранить") }
+            TextButton(onClick = ::save, enabled = valid) { Text(tr("Сохранить")) }
         }
         Column(
             Modifier.verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Field(name, { name = it }, "Название (необязательно)")
-            Field(host, { host = it.trim() }, "Хост или IP", KeyboardType.Uri)
+            Field(name, { name = it }, tr("Название (необязательно)"))
+            Field(host, { host = it.trim() }, tr("Хост или IP"), KeyboardType.Uri)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Field(user, { user = it.trim() }, "Пользователь", modifier = Modifier.weight(2f))
-                Field(port, { port = it.filter(Char::isDigit).take(5) }, "Порт", KeyboardType.Number, Modifier.weight(1f))
+                Field(user, { user = it.trim() }, tr("Пользователь"), modifier = Modifier.weight(2f))
+                Field(port, { port = it.filter(Char::isDigit).take(5) }, tr("Порт"), KeyboardType.Number, Modifier.weight(1f))
             }
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                listOf("Пароль", "Ключ").forEachIndexed { i, label ->
+                listOf(tr("Пароль"), tr("Ключ")).forEachIndexed { i, label ->
                     SegmentedButton(useKey == (i == 1), {
                         useKey = i == 1
                         if (useKey && keyId.isEmpty()) keyId = Store.keys.singleOrNull()?.id.orEmpty()
                     }, SegmentedButtonDefaults.itemShape(i, 2)) { Text(label) }
                 }
             }
-            if (!useKey) Field(password, { password = it }, "Пароль", KeyboardType.Password, visual = PasswordVisualTransformation())
-            else if (Store.keys.isEmpty()) Text("Ключей пока нет. Создайте или импортируйте ключ в Настройках.", color = Muted)
+            if (!useKey) Field(password, { password = it }, tr("Пароль"), KeyboardType.Password, visual = PasswordVisualTransformation())
+            else if (Store.keys.isEmpty()) Text(tr("Ключей пока нет. Создайте или импортируйте ключ в Настройках."), color = Muted)
             else Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Store.keys.forEach { k ->
                     FilterChip(keyId == k.id, { keyId = k.id }, { Text(k.name) },
                         leadingIcon = { Icon(Icons.Filled.Key, null, Modifier.size(18.dp)) })
                 }
             }
-            Field(tags, { tags = it }, "Теги через запятую")
-            Field(startup, { startup = it }, "Команда после входа (необязательно)")
+            Field(tags, { tags = it }, tr("Теги через запятую"))
+            Field(startup, { startup = it }, tr("Команда после входа (необязательно)"))
         }
     }
 }

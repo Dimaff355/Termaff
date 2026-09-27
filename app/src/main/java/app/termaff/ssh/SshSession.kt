@@ -6,6 +6,7 @@ import app.termaff.data.Snippet
 import app.termaff.data.SshKey
 import app.termaff.data.Store
 import app.termaff.data.Vault
+import app.termaff.tr
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -113,7 +114,7 @@ class SshSession(val target: Target) {
                 state = SessionState.Connecting
                 val error = try {
                     if (connect()) return@launch close()
-                    "Связь потеряна"
+                    tr("Связь потеряна")
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: IOException) {
@@ -130,7 +131,7 @@ class SshSession(val target: Target) {
                 if (!established || attempt >= RETRIES) return@launch close(error)
                 attempt++
                 // Программа на сервере могла оставить альтернативный экран и режимы клавиш/мыши — сбрасываем локально
-                emulator.writeInput("\u001b[?1049l\u001b[?1l\u001b[?1000l\u001b[?1002l\u001b[?1006l\u001b[?2004l\u001b[0m\r\n[$error. Переподключение…]\r\n".toByteArray())
+                emulator.writeInput(("\u001b[?1049l\u001b[?1l\u001b[?1000l\u001b[?1002l\u001b[?1006l\u001b[?2004l\u001b[0m\r\n[" + tr("%s. Переподключение…", error) + "]\r\n").toByteArray())
                 altScreen = false
                 secretPrompt = false
                 delay(minOf(1L shl attempt, 30L) * 1000)
@@ -145,7 +146,7 @@ class SshSession(val target: Target) {
         // Совсем без таймаута нельзя: сервер, принявший TCP и молчащий, повесил бы подключение навсегда
         val kexTimeout = if ("${target.host}:${target.port}" in Store.knownHosts) 20_000 else 60_000
         c.connect({ host, port, algo, key -> verifyHostKey("$host:$port", algo, key) }, 10_000, kexTimeout)
-        check(authenticate(c)) { "Неверный логин, пароль или ключ" }
+        check(authenticate(c)) { tr("Неверный логин, пароль или ключ") }
         val s = c.openSession()
         val opened = size
         s.requestPTY("xterm-256color", opened.first, opened.second, 0, 0, null)
@@ -194,7 +195,7 @@ class SshSession(val target: Target) {
 
     /** Выполнить скрипт в `sh` (через stdin: без экранирования и независимо от shell пользователя), вернуть вывод. */
     fun exec(script: String): String {
-        val s = checkNotNull(connection) { "Нет соединения" }.openSession()
+        val s = checkNotNull(connection) { tr("Нет соединения") }.openSession()
         try {
             s.execCommand("sh")
             s.stdin.use { it.write(script.toByteArray()) }
@@ -256,7 +257,7 @@ class SshSession(val target: Target) {
         )
         Store.knownHosts[hostPort]?.let { known ->
             if (known == fp) return true
-            throw SecurityException("Ключ сервера изменился! Возможна атака MITM.\nБыл: $known\nСейчас: $fp")
+            throw SecurityException(tr("Ключ сервера изменился! Возможна атака MITM.\nБыл: %s\nСейчас: %s", known, fp))
         }
         val prompt = HostKeyPrompt(hostPort, fp, CompletableDeferred())
         hostKeyPrompt = prompt
@@ -274,4 +275,4 @@ private val Exception.text get() = message ?: javaClass.simpleName
 
 private val ALT_SCREEN = Regex("\u001b\\[\\?(?:1049|1047|47)([hl])")
 private val ANSI = Regex("\u001b\\[[0-9;?]*[ -/]*[@-~]")
-private val SECRET_PROMPT = Regex("(?i)(password|passphrase|пароль)[^\n]*:\\s*$")
+private val SECRET_PROMPT = Regex("(?i)(password|passphrase|пароль|密码)[^\n]*[:：]\\s*$")

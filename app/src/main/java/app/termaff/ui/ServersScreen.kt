@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import app.termaff.data.Server
 import app.termaff.data.Store
 import app.termaff.ssh.Sessions
+import app.termaff.tr
 import java.util.UUID
 
 @Composable
@@ -65,7 +66,7 @@ fun ServersScreen(onOpen: (Server) -> Unit, onOverview: (Server) -> Unit, onFile
         contentWindowInsets = WindowInsets.statusBars,
         floatingActionButton = {
             FloatingActionButton(onClick = { onEdit(null) }, containerColor = Accent, contentColor = Bg, shape = CircleShape) {
-                Icon(Icons.Filled.Add, "Добавить сервер")
+                Icon(Icons.Filled.Add, tr("Добавить сервер"))
             }
         },
     ) { pad ->
@@ -74,18 +75,18 @@ fun ServersScreen(onOpen: (Server) -> Unit, onOverview: (Server) -> Unit, onFile
             contentPadding = PaddingValues(16.dp, pad.calculateTopPadding() + 16.dp, 16.dp, pad.calculateBottomPadding() + 88.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item { Text("Серверы", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold) }
+            item { Text(tr("Серверы"), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold) }
             item {
                 TextField(
                     query, { query = it }, Modifier.fillMaxWidth(),
-                    placeholder = { Text("Поиск серверов…") },
+                    placeholder = { Text(tr("Поиск серверов…")) },
                     leadingIcon = { Icon(Icons.Filled.Search, null) },
                     singleLine = true, shape = RoundedCornerShape(16.dp), colors = fieldColors(),
                 )
             }
             items(list, key = { it.id }) { s -> ServerCard(s, onOpen, onOverview, onFiles, onEdit, onDelete = { deleting = s }) }
             if (Store.servers.isEmpty()) item {
-                Text("Пока пусто. Нажмите «+», чтобы добавить сервер.", color = Muted, modifier = Modifier.padding(top = 32.dp))
+                Text(tr("Пока пусто. Нажмите «+», чтобы добавить сервер."), color = Muted, modifier = Modifier.padding(top = 32.dp))
             }
         }
     }
@@ -93,9 +94,9 @@ fun ServersScreen(onOpen: (Server) -> Unit, onOverview: (Server) -> Unit, onFile
     deleting?.let { s ->
         AlertDialog(
             onDismissRequest = { deleting = null },
-            title = { Text("Удалить «${s.title}»?") },
-            confirmButton = { TextButton(onClick = { Store.delete(s.id); deleting = null }) { Text("Удалить", color = Danger) } },
-            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Отмена") } },
+            title = { Text(tr("Удалить «%s»?", s.title)) },
+            confirmButton = { TextButton(onClick = { Store.delete(s.id); deleting = null }) { Text(tr("Удалить"), color = Danger) } },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text(tr("Отмена")) } },
         )
     }
 }
@@ -123,16 +124,16 @@ private fun ServerCard(
             if (s.tags.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { s.tags.forEach { Tag(it) } }
         }
         Box {
-            IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "Меню", tint = Muted) }
+            IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, tr("Меню"), tint = Muted) }
             DropdownMenu(menu, { menu = false }) {
-                DropdownMenuItem({ Text("Обзор") }, { menu = false; onOverview(s) })
-                DropdownMenuItem({ Text("Файлы") }, { menu = false; onFiles(s) })
-                DropdownMenuItem({ Text("Изменить") }, { menu = false; onEdit(s) })
-                DropdownMenuItem({ Text("Копировать") }, {
+                DropdownMenuItem({ Text(tr("Обзор")) }, { menu = false; onOverview(s) })
+                DropdownMenuItem({ Text(tr("Файлы")) }, { menu = false; onFiles(s) })
+                DropdownMenuItem({ Text(tr("Изменить")) }, { menu = false; onEdit(s) })
+                DropdownMenuItem({ Text(tr("Копировать")) }, {
                     menu = false
-                    Store.save(s.copy(id = UUID.randomUUID().toString(), name = "${s.title} (копия)"))
+                    Store.save(s.copy(id = UUID.randomUUID().toString(), name = tr("%s (копия)", s.title)))
                 })
-                DropdownMenuItem({ Text("Удалить", color = Danger) }, { menu = false; onDelete() })
+                DropdownMenuItem({ Text(tr("Удалить"), color = Danger) }, { menu = false; onDelete() })
             }
         }
     }

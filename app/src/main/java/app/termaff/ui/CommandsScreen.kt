@@ -3,10 +3,10 @@ package app.termaff.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -54,6 +54,7 @@ import app.termaff.data.Snippet
 import app.termaff.data.Store
 import app.termaff.ssh.SessionState
 import app.termaff.ssh.Sessions
+import app.termaff.tr
 
 /**
  * Быстрые команды: однострочные — плитками, многострочные — сценариями с шагами.
@@ -70,7 +71,7 @@ fun CommandsScreen(onEdit: (Snippet?) -> Unit, onRun: (Snippet) -> Unit) {
         contentWindowInsets = WindowInsets.statusBars,
         floatingActionButton = {
             FloatingActionButton(onClick = { onEdit(null) }, containerColor = Accent, contentColor = Bg, shape = CircleShape) {
-                Icon(Icons.Filled.Add, "Добавить команду")
+                Icon(Icons.Filled.Add, tr("Добавить команду"))
             }
         },
     ) { pad ->
@@ -79,9 +80,9 @@ fun CommandsScreen(onEdit: (Snippet?) -> Unit, onRun: (Snippet) -> Unit) {
             contentPadding = PaddingValues(16.dp, pad.calculateTopPadding() + 16.dp, 16.dp, 88.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item { Text("Команды", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold) }
+            item { Text(tr("Команды"), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold) }
             if (Store.snippets.isEmpty()) item {
-                Text("Сохраняйте частые команды и сценарии из нескольких шагов — они появятся в терминале над клавишами.",
+                Text(tr("Сохраняйте частые команды и сценарии из нескольких шагов — они появятся в терминале над клавишами."),
                     color = Muted, modifier = Modifier.padding(top = 16.dp))
             }
             // Плитки по две в ряд, как в макете
@@ -92,7 +93,7 @@ fun CommandsScreen(onEdit: (Snippet?) -> Unit, onRun: (Snippet) -> Unit) {
                 }
             }
             if (scenarios.isNotEmpty()) item {
-                Text("Сценарии", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+                Text(tr("Сценарии"), style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
             }
             items(scenarios, key = { it.id }) { s -> Scenario(s, runnable(s), onEdit, onRun) }
         }
@@ -138,55 +139,61 @@ private fun Scenario(s: Snippet, runnable: Boolean, onEdit: (Snippet) -> Unit, o
 @Composable
 private fun RunButton(onClick: () -> Unit) = Box(
     Modifier.size(36.dp).clip(CircleShape).background(Accent).clickable(onClick = onClick), Alignment.Center,
-) { Icon(Icons.Filled.PlayArrow, "Выполнить", tint = Bg) }
+) { Icon(Icons.Filled.PlayArrow, tr("Выполнить"), tint = Bg) }
 
 @Composable
 private fun ServerLabel(s: Snippet) {
-    val server = Store.servers.firstOrNull { it.id == s.serverId }
-    Text(server?.title ?: "Все серверы", color = Muted, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+    val names = Store.servers.filter { it.id in s.serverIds }.map { it.title }
+    Text(names.ifEmpty { listOf(tr("Все серверы")) }.joinToString(", "), color = Muted,
+        style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
 }
 
 /** Добавление/редактирование команды. */
 @Composable
 fun SnippetEditScreen(snippet: Snippet?, onDone: () -> Unit) {
-    val s = snippet ?: Snippet(serverId = Sessions.current?.target?.serverId.orEmpty())
+    val s = snippet ?: Snippet(serverIds = listOfNotNull(Sessions.current?.target?.serverId))
     var name by remember { mutableStateOf(s.name) }
     var command by remember { mutableStateOf(s.command) }
-    var serverId by remember { mutableStateOf(s.serverId) }
+    var serverIds by remember { mutableStateOf(s.serverIds) }
 
     BackHandler(onBack = onDone)
     Column(Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onDone) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") }
-            Text(if (snippet == null) "Новая команда" else "Изменить", style = MaterialTheme.typography.titleLarge,
+            IconButton(onClick = onDone) { Icon(Icons.AutoMirrored.Filled.ArrowBack, tr("Назад")) }
+            Text(if (snippet == null) tr("Новая команда") else tr("Изменить"), style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.weight(1f))
             TextButton(
-                onClick = { Store.save(s.copy(name = name.trim(), command = command.trim(), serverId = serverId)); onDone() },
+                onClick = { Store.save(s.copy(name = name.trim(), command = command.trim(), serverIds = serverIds)); onDone() },
                 enabled = command.isNotBlank(),
-            ) { Text("Сохранить") }
+            ) { Text(tr("Сохранить")) }
         }
         Column(
             Modifier.verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             TextField(
-                name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Название (необязательно)") },
+                name, { name = it }, Modifier.fillMaxWidth(), label = { Text(tr("Название (необязательно)")) },
                 singleLine = true, shape = RoundedCornerShape(12.dp), colors = fieldColors(),
             )
             TextField(
-                command, { command = it }, Modifier.fillMaxWidth(), label = { Text("Команда") }, minLines = 3,
-                supportingText = { Text("Несколько строк — сценарий: строки выполняются по очереди") },
+                command, { command = it }, Modifier.fillMaxWidth(), label = { Text(tr("Команда")) }, minLines = 3,
+                supportingText = { Text(tr("Несколько строк — сценарий: строки выполняются по очереди")) },
                 textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = Mono),
                 shape = RoundedCornerShape(12.dp), colors = fieldColors(),
                 keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
             )
-            Text("Сервер", color = Muted, style = MaterialTheme.typography.labelLarge)
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(serverId.isEmpty(), { serverId = "" }, { Text("Все серверы") })
-                Store.servers.forEach { sv -> FilterChip(serverId == sv.id, { serverId = sv.id }, { Text(sv.title) }) }
+            Text(tr("Серверы"), color = Muted, style = MaterialTheme.typography.labelLarge)
+            // Любое число серверов; ни одного — команда для всех
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(serverIds.isEmpty(), { serverIds = emptyList() }, { Text(tr("Все серверы")) })
+                Store.servers.forEach { sv ->
+                    FilterChip(sv.id in serverIds, {
+                        serverIds = if (sv.id in serverIds) serverIds - sv.id else serverIds + sv.id
+                    }, { Text(sv.title) })
+                }
             }
             if (snippet != null) TextButton(onClick = { Store.deleteSnippet(s.id); onDone() }) {
-                Text("Удалить команду", color = Danger)
+                Text(tr("Удалить команду"), color = Danger)
             }
         }
     }

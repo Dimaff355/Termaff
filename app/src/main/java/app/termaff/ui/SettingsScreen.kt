@@ -1,5 +1,6 @@
 package app.termaff.ui
 
+import app.termaff.Languages
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -8,6 +9,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -49,6 +51,7 @@ import app.termaff.data.SshKey
 import app.termaff.data.Store
 import app.termaff.data.Vault
 import app.termaff.ssh.Keys
+import app.termaff.tr
 import kotlin.math.roundToInt
 
 @Composable
@@ -57,20 +60,27 @@ fun SettingsScreen(onEditKey: (SshKey) -> Unit) {
         Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Настройки", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-        Section("Ключи SSH")
+        Text(tr("Настройки"), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+        Section(tr("Ключи SSH"))
         Store.keys.forEach { k -> KeyCard(k) { onEditKey(k) } }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = {
                 val (pem, public) = Keys.generate("termaff")
-                onEditKey(SshKey(name = "Ключ ${Store.keys.size + 1}", private = Vault.encrypt(pem), public = public))
-            }) { Text("Создать Ed25519") }
-            OutlinedButton(onClick = { onEditKey(SshKey()) }) { Text("Импортировать") }
+                onEditKey(SshKey(name = tr("Ключ %s", Store.keys.size + 1), private = Vault.encrypt(pem), public = public))
+            }) { Text(tr("Создать Ed25519")) }
+            OutlinedButton(onClick = { onEditKey(SshKey()) }) { Text(tr("Импортировать")) }
         }
-        Section("Терминал")
+        Section(tr("Терминал"))
         TerminalSettings()
-        Section("Безопасность")
+        Section(tr("Безопасность"))
         LockSetting()
+        // Названия языков — на самих языках, чтобы найти свой, даже если интерфейс на незнакомом
+        Section(tr("Язык"))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Languages.forEach { (code, name) ->
+                FilterChip(Store.lang == code, { Store.saveLang(code) }, { Text(if (code.isEmpty()) tr(name) else name) })
+            }
+        }
         About()
     }
 }
@@ -102,7 +112,7 @@ private fun KeyCard(k: SshKey, onClick: () -> Unit) = Row(
     Column(Modifier.weight(1f).padding(start = 16.dp)) {
         Text(k.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         val used = Store.servers.count { it.keyId == k.id }
-        Text(k.type + if (used > 0) " · серверов: $used" else "", color = Muted, style = MaterialTheme.typography.bodyMedium)
+        Text(k.type + if (used > 0) tr(" · серверов: %s", used) else "", color = Muted, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
@@ -127,19 +137,19 @@ private fun TerminalSettings() {
         )
         Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Размер шрифта", style = MaterialTheme.typography.titleMedium)
-                Text(if (Store.fontSize > 0) "${size.roundToInt()} sp · меняется и щипком" else "Авто: 80 колонок по ширине",
+                Text(tr("Размер шрифта"), style = MaterialTheme.typography.titleMedium)
+                Text(if (Store.fontSize > 0) tr("%s sp · меняется и щипком", size.roundToInt()) else tr("Авто: 80 колонок по ширине"),
                     color = Muted, style = MaterialTheme.typography.bodyMedium)
             }
-            IconButton(onClick = { Store.saveFontSize((size.roundToInt() - 1f).coerceAtLeast(6f)) }) { Icon(Icons.Filled.Remove, "Меньше") }
-            IconButton(onClick = { Store.saveFontSize((size.roundToInt() + 1f).coerceAtMost(24f)) }) { Icon(Icons.Filled.Add, "Больше") }
+            IconButton(onClick = { Store.saveFontSize((size.roundToInt() - 1f).coerceAtLeast(6f)) }) { Icon(Icons.Filled.Remove, tr("Меньше")) }
+            IconButton(onClick = { Store.saveFontSize((size.roundToInt() + 1f).coerceAtMost(24f)) }) { Icon(Icons.Filled.Add, tr("Больше")) }
         }
-        if (Store.fontSize > 0) FilterChip(false, { Store.saveFontSize(0f) }, { Text("Вернуть авто") })
-        Text("Цветовая схема", Modifier.padding(top = 8.dp, bottom = 8.dp), style = MaterialTheme.typography.titleMedium)
+        if (Store.fontSize > 0) FilterChip(false, { Store.saveFontSize(0f) }, { Text(tr("Вернуть авто")) })
+        Text(tr("Цветовая схема"), Modifier.padding(top = 8.dp, bottom = 8.dp), style = MaterialTheme.typography.titleMedium)
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TermThemes.forEach { t ->
                 FilterChip(
-                    t == theme, { Store.saveTheme(t.id) }, { Text(t.name) },
+                    t == theme, { Store.saveTheme(t.id) }, { Text(tr(t.name)) },
                     leadingIcon = { Box(Modifier.size(16.dp).background(t.bg, CircleShape).border(2.dp, Color(t.ansi[2]), CircleShape)) },
                 )
             }
@@ -155,9 +165,9 @@ private fun LockSetting() {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text("Вход по отпечатку", style = MaterialTheme.typography.titleMedium)
+            Text(tr("Вход по отпечатку"), style = MaterialTheme.typography.titleMedium)
             Text(
-                if (AppLock.supported) "Отпечаток или PIN телефона при открытии приложения" else "Нужен Android 11 или новее",
+                if (AppLock.supported) tr("Отпечаток или PIN телефона при открытии приложения") else tr("Нужен Android 11 или новее"),
                 color = Muted, style = MaterialTheme.typography.bodyMedium,
             )
         }
@@ -168,10 +178,10 @@ private fun LockSetting() {
                 when {
                     // Подтверждение и при включении (проверка, что работает), и при выключении
                     AppLock.available(context) ->
-                        AppLock.prompt(context, if (on) "Включить вход по отпечатку" else "Выключить вход по отпечатку") { ok ->
+                        AppLock.prompt(context, if (on) tr("Включить вход по отпечатку") else tr("Выключить вход по отпечатку")) { ok ->
                             if (ok) Store.saveLock(on)
                         }
-                    on -> Toast.makeText(context, "Сначала включите блокировку экрана в настройках телефона", Toast.LENGTH_LONG).show()
+                    on -> Toast.makeText(context, tr("Сначала включите блокировку экрана в настройках телефона"), Toast.LENGTH_LONG).show()
                     else -> Store.saveLock(false)
                 }
             },

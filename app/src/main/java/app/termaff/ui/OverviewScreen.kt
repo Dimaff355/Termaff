@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.termaff.ssh.SshSession
+import app.termaff.tr
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -128,7 +129,7 @@ fun OverviewScreen(session: SshSession, onBack: () -> Unit, onTerminal: () -> Un
             val s = stats
             Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Metric("CPU", cpu.lastOrNull()?.let { "${(it * 100).toInt()}%" } ?: "…",
-                    s?.lines?.get("cpus")?.let { "ядер: $it" }) {
+                    s?.lines?.get("cpus")?.let { tr("ядер: %s", it) }) {
                     Sparkline(cpu)
                 }
                 Metric("RAM", s?.let { "${percent(it.memUsed, it.memTotal)}%" } ?: "…",
@@ -137,24 +138,24 @@ fun OverviewScreen(session: SshSession, onBack: () -> Unit, onTerminal: () -> Un
                 }
             }
             Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Metric("Диск /", s?.let { "${percent(it.diskUsed, it.diskTotal)}%" } ?: "…",
+                Metric(tr("Диск /"), s?.let { "${percent(it.diskUsed, it.diskTotal)}%" } ?: "…",
                     s?.let { "${humanSize(it.diskUsed.toLong())} / ${humanSize(it.diskTotal.toLong())}" }) {
                     s?.let { Bar(it.diskUsed, it.diskTotal) }
                 }
-                Metric("Аптайм", s?.uptime?.let(::duration) ?: "…", s?.load?.let { "нагрузка $it" })
+                Metric(tr("Аптайм"), s?.uptime?.let(::duration) ?: "…", s?.load?.let { tr("нагрузка %s", it) })
             }
 
-            Text("Быстрые действия", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+            Text(tr("Быстрые действия"), style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Action(Icons.Filled.Terminal, "Терминал", "SSH", onTerminal)
-                Action(Icons.Filled.Folder, "Файлы", "SFTP", onFiles)
+                Action(Icons.Filled.Terminal, tr("Терминал"), "SSH", onTerminal)
+                Action(Icons.Filled.Folder, tr("Файлы"), "SFTP", onFiles)
             }
 
             if (s != null) Column(
                 Modifier.fillMaxWidth().background(Card, RoundedCornerShape(16.dp)).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text("Система", style = MaterialTheme.typography.titleMedium)
+                Text(tr("Система"), style = MaterialTheme.typography.titleMedium)
                 listOfNotNull(s.lines["os"], s.lines["kernel"], s.lines["host"]).filter { it.isNotBlank() }
                     .forEach { Text(it, color = Muted, style = MaterialTheme.typography.bodyMedium) }
             }
@@ -182,15 +183,16 @@ private fun Bar(used: Double, total: Double) {
     )
 }
 
-/** Загрузка CPU за последние опросы: 0 — низ, 100% — верх. */
+/** Загрузка CPU за последние опросы. Верх — максимум видимых точек с запасом (не меньше 5%): иначе при низкой нагрузке линия лежит на дне. */
 @Composable
 private fun Sparkline(values: List<Float>) = Canvas(Modifier.fillMaxWidth().height(28.dp)) {
     if (values.size < 2) return@Canvas
+    val top = maxOf(values.max() * 1.25f, 0.05f)
     val step = size.width / (POINTS - 1)
     val x0 = size.width - step * (values.size - 1)
     val path = Path()
     values.forEachIndexed { i, v ->
-        val p = Offset(x0 + step * i, size.height * (1 - v.coerceIn(0f, 1f)))
+        val p = Offset(x0 + step * i, size.height * (1 - (v / top).coerceIn(0f, 1f)))
         if (i == 0) path.moveTo(p.x, p.y) else path.lineTo(p.x, p.y)
     }
     drawPath(path, Accent, style = Stroke(2.dp.toPx()))
@@ -213,8 +215,8 @@ private fun duration(s: Long): String {
     val h = s % 86400 / 3600
     val m = s % 3600 / 60
     return when {
-        d > 0 -> "$d д $h ч"
-        h > 0 -> "$h ч $m мин"
-        else -> "$m мин"
+        d > 0 -> tr("%s д %s ч", d, h)
+        h > 0 -> tr("%s ч %s мин", h, m)
+        else -> tr("%s мин", m)
     }
 }

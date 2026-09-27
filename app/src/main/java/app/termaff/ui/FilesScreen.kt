@@ -1,5 +1,6 @@
 package app.termaff.ui
 
+import app.termaff.locale
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
@@ -56,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import app.termaff.ssh.RemoteFile
 import app.termaff.ssh.Sftp
 import app.termaff.ssh.SshSession
+import app.termaff.tr
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -87,7 +89,7 @@ fun FilesScreen(session: SshSession, onBack: () -> Unit) {
     var deleting by remember { mutableStateOf<RemoteFile?>(null) }
     var downloading by remember { mutableStateOf<RemoteFile?>(null) }
     var replacing by remember { mutableStateOf<Pair<Uri, String>?>(null) }
-    val dates = remember { SimpleDateFormat("d MMM yyyy, HH:mm") }
+    val dates = remember(locale) { SimpleDateFormat("d MMM yyyy, HH:mm", locale) }
 
     fun Exception.text() = message ?: javaClass.simpleName
     fun act(block: suspend () -> Unit) = scope.launch {
@@ -150,9 +152,9 @@ fun FilesScreen(session: SshSession, onBack: () -> Unit) {
         SessionHeader(session, onBack) {
             if (conn != null && path != null) {
                 IconButton(onClick = { picker.launch(arrayOf("*/*")) }, enabled = transfer == null) {
-                    Icon(Icons.Filled.Upload, "Загрузить файл")
+                    Icon(Icons.Filled.Upload, tr("Загрузить файл"))
                 }
-                IconButton(onClick = { naming = RemoteFile("", "", true, 0, 0) }) { Icon(Icons.Filled.CreateNewFolder, "Новая папка") }
+                IconButton(onClick = { naming = RemoteFile("", "", true, 0, 0) }) { Icon(Icons.Filled.CreateNewFolder, tr("Новая папка")) }
             }
         }
         if (conn == null) {
@@ -170,7 +172,7 @@ fun FilesScreen(session: SshSession, onBack: () -> Unit) {
 
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(vertical = 4.dp)) {
             path?.takeIf { it != "/" }?.let { p ->
-                item { FileRow(Icons.Filled.Folder, "..", "Наверх", onClick = { open(Sftp.parent(p)) }) }
+                item { FileRow(Icons.Filled.Folder, "..", tr("Наверх"), onClick = { open(Sftp.parent(p)) }) }
             }
             items(files, key = { it.name }) { f ->
                 Box {
@@ -180,16 +182,16 @@ fun FilesScreen(session: SshSession, onBack: () -> Unit) {
                         onClick = { if (f.dir) open(f.path) else menu = f }, onLongClick = { menu = f },
                     )
                     DropdownMenu(menu == f, { menu = null }) {
-                        if (!f.dir) DropdownMenuItem({ Text("Скачать") }, {
+                        if (!f.dir) DropdownMenuItem({ Text(tr("Скачать")) }, {
                             menu = null; downloading = f; saver.launch(f.name)
                         }, enabled = transfer == null)
-                        DropdownMenuItem({ Text("Переименовать") }, { menu = null; naming = f })
-                        DropdownMenuItem({ Text("Удалить", color = Danger) }, { menu = null; deleting = f })
+                        DropdownMenuItem({ Text(tr("Переименовать")) }, { menu = null; naming = f })
+                        DropdownMenuItem({ Text(tr("Удалить"), color = Danger) }, { menu = null; deleting = f })
                     }
                 }
             }
             if (!loading && path != null && files.isEmpty()) item {
-                Text("Пусто", color = Muted, modifier = Modifier.padding(16.dp))
+                Text(tr("Пусто"), color = Muted, modifier = Modifier.padding(16.dp))
             }
         }
 
@@ -202,7 +204,7 @@ fun FilesScreen(session: SshSession, onBack: () -> Unit) {
                         color = Accent, trackColor = Bg, drawStopIndicator = {})
                     else LinearProgressIndicator(Modifier.fillMaxWidth(), color = Accent, trackColor = Bg)
                 }
-                IconButton(onClick = { job?.cancel() }) { Icon(Icons.Filled.Close, "Отменить") }
+                IconButton(onClick = { job?.cancel() }) { Icon(Icons.Filled.Close, tr("Отменить")) }
             }
         }
     }
@@ -211,7 +213,7 @@ fun FilesScreen(session: SshSession, onBack: () -> Unit) {
         var name by remember(f) { mutableStateOf(f.name) }
         AlertDialog(
             onDismissRequest = { naming = null },
-            title = { Text(if (f.name.isEmpty()) "Новая папка" else "Переименовать") },
+            title = { Text(if (f.name.isEmpty()) tr("Новая папка") else tr("Переименовать")) },
             text = { TextField(name, { name = it }, singleLine = true, colors = fieldColors()) },
             confirmButton = {
                 TextButton(enabled = name.isNotBlank() && '/' !in name && name != f.name, onClick = {
@@ -222,25 +224,25 @@ fun FilesScreen(session: SshSession, onBack: () -> Unit) {
                     }
                 }) { Text("OK") }
             },
-            dismissButton = { TextButton(onClick = { naming = null }) { Text("Отмена") } },
+            dismissButton = { TextButton(onClick = { naming = null }) { Text(tr("Отмена")) } },
         )
     }
     deleting?.let { f ->
         AlertDialog(
             onDismissRequest = { deleting = null },
-            title = { Text("Удалить «${f.name}»?") },
-            text = if (f.dir) ({ Text("Удаляется только пустая папка.") }) else null,
-            confirmButton = { TextButton(onClick = { deleting = null; act { sftp.delete(f); refresh() } }) { Text("Удалить", color = Danger) } },
-            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Отмена") } },
+            title = { Text(tr("Удалить «%s»?", f.name)) },
+            text = if (f.dir) ({ Text(tr("Удаляется только пустая папка.")) }) else null,
+            confirmButton = { TextButton(onClick = { deleting = null; act { sftp.delete(f); refresh() } }) { Text(tr("Удалить"), color = Danger) } },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text(tr("Отмена")) } },
         )
     }
     replacing?.let { (uri, name) ->
         AlertDialog(
             onDismissRequest = { replacing = null },
-            title = { Text("Заменить «$name»?") },
-            text = { Text("Файл с таким именем уже есть в этой папке.") },
-            confirmButton = { TextButton(onClick = { replacing = null; upload(uri, name) }) { Text("Заменить", color = Danger) } },
-            dismissButton = { TextButton(onClick = { replacing = null }) { Text("Отмена") } },
+            title = { Text(tr("Заменить «%s»?", name)) },
+            text = { Text(tr("Файл с таким именем уже есть в этой папке.")) },
+            confirmButton = { TextButton(onClick = { replacing = null; upload(uri, name) }) { Text(tr("Заменить"), color = Danger) } },
+            dismissButton = { TextButton(onClick = { replacing = null }) { Text(tr("Отмена")) } },
         )
     }
 }
@@ -260,9 +262,9 @@ private fun FileRow(icon: ImageVector, name: String, sub: String,
 
 /** 1536 → «1,5 КБ». */
 fun humanSize(bytes: Long): String {
-    if (bytes < 1024) return "$bytes Б"
+    if (bytes < 1024) return tr("%s Б", bytes)
     var v = bytes.toDouble()
     var i = -1
     while (v >= 1024 && i < 3) { v /= 1024; i++ }
-    return "%.1f %s".format(v, listOf("КБ", "МБ", "ГБ", "ТБ")[i])
+    return "%.1f %s".format(v, listOf(tr("КБ"), tr("МБ"), tr("ГБ"), tr("ТБ"))[i])
 }

@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import app.termaff.R
+import app.termaff.tr
 
 /**
  * Foreground service: пока есть живые сессии, система не убивает процесс в фоне и не режет ему сеть.
@@ -56,7 +57,7 @@ class SessionService : Service() {
 
         private fun notification(context: Context, live: List<String>): Notification {
             val nm = context.getSystemService(NotificationManager::class.java)
-            nm.createNotificationChannel(NotificationChannel(CHANNEL, "SSH-сессии", NotificationManager.IMPORTANCE_LOW))
+            nm.createNotificationChannel(NotificationChannel(CHANNEL, tr("SSH-сессии"), NotificationManager.IMPORTANCE_LOW))
             val open = PendingIntent.getActivity(
                 context, 0, context.packageManager.getLaunchIntentForPackage(context.packageName), PendingIntent.FLAG_IMMUTABLE,
             )
@@ -65,11 +66,11 @@ class SessionService : Service() {
             )
             return Notification.Builder(context, CHANNEL)
                 .setSmallIcon(R.drawable.ic_notify)
-                .setContentTitle(if (live.size == 1) "SSH-сессия открыта" else "SSH-сессий открыто: ${live.size}")
+                .setContentTitle(if (live.size == 1) tr("SSH-сессия открыта") else tr("SSH-сессий открыто: %s", live.size))
                 .setContentText(live.joinToString(", "))
                 .setContentIntent(open)
                 .setOngoing(true)
-                .addAction(Notification.Action.Builder(null, "Отключить все", stop).build())
+                .addAction(Notification.Action.Builder(null, tr("Отключить все"), stop).build())
                 .build()
         }
     }

@@ -144,7 +144,7 @@ class MainActivity : ComponentActivity() {
                             Tab.entries.forEach { t ->
                                 NavigationBarItem(
                                     selected = tab == t, onClick = { tab = t },
-                                    icon = { Icon(t.icon, null) }, label = { Text(t.title) },
+                                    icon = { Icon(t.icon, null) }, label = { Text(tr(t.title)) },
                                     colors = NavigationBarItemDefaults.colors(
                                         selectedIconColor = Accent, selectedTextColor = Accent, indicatorColor = Bg,
                                     ),

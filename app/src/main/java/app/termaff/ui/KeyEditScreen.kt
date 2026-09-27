@@ -47,6 +47,7 @@ import app.termaff.data.SshKey
 import app.termaff.data.Store
 import app.termaff.data.Vault
 import app.termaff.ssh.Keys
+import app.termaff.tr
 
 /**
  * Ключ: импорт (вставить или из файла), просмотр публичной части для authorized_keys, удаление.
@@ -73,7 +74,7 @@ fun KeyEditScreen(key: SshKey, onDone: () -> Unit) {
         val comment = name.trim().replace(Regex("\\s+"), "-").ifEmpty { "termaff" }
         // Разбор ключа заодно проверяет формат и пароль — ошибка видна сразу, а не при подключении
         val public = runCatching { Keys.publicKey(pem, passphrase, comment) }.getOrElse {
-            error = "Не удалось прочитать ключ: неверный формат или пароль ключа"
+            error = tr("Не удалось прочитать ключ: неверный формат или пароль ключа")
             return
         }
         Store.save(key.copy(name = name.trim(), private = Vault.encrypt(pem.trim()), passphrase = Vault.encrypt(passphrase), public = public))
@@ -83,15 +84,15 @@ fun KeyEditScreen(key: SshKey, onDone: () -> Unit) {
     BackHandler(onBack = onDone)
     Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onDone) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") }
-            Text(if (saved) "Ключ" else "Новый ключ", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-            TextButton(onClick = ::save, enabled = name.isNotBlank() && pem.isNotBlank()) { Text("Сохранить") }
+            IconButton(onClick = onDone) { Icon(Icons.AutoMirrored.Filled.ArrowBack, tr("Назад")) }
+            Text(if (saved) tr("Ключ") else tr("Новый ключ"), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            TextButton(onClick = ::save, enabled = name.isNotBlank() && pem.isNotBlank()) { Text(tr("Сохранить")) }
         }
         Column(
             Modifier.verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            TextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Название") }, singleLine = true,
+            TextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text(tr("Название")) }, singleLine = true,
                 shape = RoundedCornerShape(12.dp), colors = fieldColors())
             if (key.public.isNotEmpty()) PublicKey(key.public)
             if (!showKey) {
@@ -100,30 +101,30 @@ fun KeyEditScreen(key: SshKey, onDone: () -> Unit) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(Icons.Filled.Key, null, tint = Accent)
-                    Text("Приватный ключ скрыт", Modifier.weight(1f).padding(start = 12.dp))
+                    Text(tr("Приватный ключ скрыт"), Modifier.weight(1f).padding(start = 12.dp))
                     TextButton(onClick = {
-                        if (Store.lock && AppLock.available(context)) AppLock.prompt(context, "Показать ключ") { showKey = it }
+                        if (Store.lock && AppLock.available(context)) AppLock.prompt(context, tr("Показать ключ")) { showKey = it }
                         else showKey = true
-                    }) { Text("Показать") }
+                    }) { Text(tr("Показать")) }
                 }
             } else {
                 TextField(
                     pem, { pem = it; error = null }, Modifier.fillMaxWidth(),
-                    label = { Text("Приватный ключ (OpenSSH/PEM)") }, minLines = 3, maxLines = 8,
+                    label = { Text(tr("Приватный ключ (OpenSSH/PEM)")) }, minLines = 3, maxLines = 8,
                     textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = Mono),
                     shape = RoundedCornerShape(12.dp), colors = fieldColors(),
                     keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
                 )
-                TextButton(onClick = { pickKey.launch(arrayOf("*/*")) }) { Text("Загрузить из файла") }
+                TextButton(onClick = { pickKey.launch(arrayOf("*/*")) }) { Text(tr("Загрузить из файла")) }
             }
             TextField(
-                passphrase, { passphrase = it; error = null }, Modifier.fillMaxWidth(), label = { Text("Пароль ключа (если есть)") },
+                passphrase, { passphrase = it; error = null }, Modifier.fillMaxWidth(), label = { Text(tr("Пароль ключа (если есть)")) },
                 singleLine = true, visualTransformation = PasswordVisualTransformation(),
                 shape = RoundedCornerShape(12.dp), colors = fieldColors(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
             )
             error?.let { Text(it, color = Danger) }
-            if (saved) TextButton(onClick = { deleting = true }) { Text("Удалить ключ", color = Danger) }
+            if (saved) TextButton(onClick = { deleting = true }) { Text(tr("Удалить ключ"), color = Danger) }
         }
     }
 
@@ -131,10 +132,10 @@ fun KeyEditScreen(key: SshKey, onDone: () -> Unit) {
         val users = Store.servers.filter { it.keyId == key.id }.joinToString { it.title }
         AlertDialog(
             onDismissRequest = { deleting = false },
-            title = { Text("Удалить «${key.name}»?") },
-            text = if (users.isEmpty()) null else ({ Text("Серверы с этим ключом перейдут на вход по паролю: $users") }),
-            confirmButton = { TextButton(onClick = { Store.deleteKey(key.id); onDone() }) { Text("Удалить", color = Danger) } },
-            dismissButton = { TextButton(onClick = { deleting = false }) { Text("Отмена") } },
+            title = { Text(tr("Удалить «%s»?", key.name)) },
+            text = if (users.isEmpty()) null else ({ Text(tr("Серверы с этим ключом перейдут на вход по паролю: %s", users)) }),
+            confirmButton = { TextButton(onClick = { Store.deleteKey(key.id); onDone() }) { Text(tr("Удалить"), color = Danger) } },
+            dismissButton = { TextButton(onClick = { deleting = false }) { Text(tr("Отмена")) } },
         )
     }
 }
@@ -144,19 +145,19 @@ fun KeyEditScreen(key: SshKey, onDone: () -> Unit) {
 private fun PublicKey(public: String) {
     val context = LocalContext.current
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Card).padding(16.dp, 12.dp, 8.dp, 4.dp)) {
-        Text("Публичный ключ — добавьте его на сервер в ~/.ssh/authorized_keys", color = Muted,
+        Text(tr("Публичный ключ — добавьте его на сервер в ~/.ssh/authorized_keys"), color = Muted,
             style = MaterialTheme.typography.labelMedium)
         Text(public, Modifier.padding(top = 8.dp, end = 8.dp), style = MaterialTheme.typography.bodySmall, fontFamily = Mono)
         Row(Modifier.align(Alignment.End)) {
             TextButton(onClick = {
                 context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("SSH key", public))
                 // Android 13+ сам показывает, что скопировано
-                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) Toast.makeText(context, "Скопировано", Toast.LENGTH_SHORT).show()
-            }) { Text("Копировать") }
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) Toast.makeText(context, tr("Скопировано"), Toast.LENGTH_SHORT).show()
+            }) { Text(tr("Копировать")) }
             TextButton(onClick = {
                 val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, public)
                 context.startActivity(Intent.createChooser(send, null))
-            }) { Text("Отправить") }
+            }) { Text(tr("Отправить")) }
         }
     }
 }

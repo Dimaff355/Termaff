@@ -10,6 +10,7 @@ import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import app.termaff.tr
 import kotlin.coroutines.coroutineContext
 
 class RemoteFile(val name: String, val path: String, val dir: Boolean, val size: Long, val mtime: Long)
@@ -24,11 +25,11 @@ class Sftp(private val session: SshSession) {
     private var client: SFTPv3Client? = null
 
     private suspend fun <T> use(block: suspend (SFTPv3Client) -> T): T = withContext(io) {
-        val c = checkNotNull(session.connection) { "Нет соединения" }
+        val c = checkNotNull(session.connection) { tr("Нет соединения") }
         if (c !== conn) {
             client?.close()
             // Нет «Subsystem sftp» в sshd_config — sshlib отвечает невнятным «subsystem request failed»
-            client = try { SFTPv3Client(c) } catch (e: IOException) { throw IOException("Сервер не поддерживает SFTP", e) }
+            client = try { SFTPv3Client(c) } catch (e: IOException) { throw IOException(tr("Сервер не поддерживает SFTP"), e) }
             conn = c
         }
         block(client!!)

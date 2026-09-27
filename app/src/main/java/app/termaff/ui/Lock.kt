@@ -31,6 +31,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import app.termaff.R
 import app.termaff.data.Store
+import app.termaff.tr
 
 /**
  * Вход по отпечатку (или PIN/графическому ключу телефона) через системный BiometricPrompt — без androidx.biometric.
@@ -76,7 +77,7 @@ object AppLock {
     fun unlock(context: Context) {
         // Блокировку экрана сняли в настройках телефона — проверить нечем, не запираем пользователя навсегда
         if (!available(context)) { locked = false; return }
-        prompt(context, "Разблокировка") { if (it) locked = false }
+        prompt(context, tr("Разблокировка")) { if (it) locked = false }
     }
 }
 
@@ -87,6 +88,6 @@ fun LockScreen() {
     Column(Modifier.fillMaxSize(), Arrangement.spacedBy(24.dp, Alignment.CenterVertically), Alignment.CenterHorizontally) {
         Image(painterResource(R.drawable.ic_launcher_fg), null, Modifier.size(144.dp).clip(CircleShape))
         Text("Termaff", style = MaterialTheme.typography.headlineMedium)
-        Button(onClick = { AppLock.unlock(context) }) { Text("Разблокировать") }
+        Button(onClick = { AppLock.unlock(context) }) { Text(tr("Разблокировать")) }
     }
 }

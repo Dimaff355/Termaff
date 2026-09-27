@@ -92,6 +92,7 @@ import app.termaff.ssh.HostKeyPrompt
 import app.termaff.ssh.SessionState
 import app.termaff.ssh.Sessions
 import app.termaff.ssh.SshSession
+import app.termaff.tr
 import org.connectbot.terminal.Terminal
 import org.connectbot.terminal.VTermKey
 
@@ -172,17 +173,17 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
         SessionHeader(session, onBack) {
             IconButton(onClick = { direct = !direct }) {
                 Icon(if (direct) Icons.Filled.ShortText else Icons.Filled.Keyboard,
-                    if (direct) "Строка ввода" else "Прямой ввод", tint = if (direct) Accent else Text)
+                    if (direct) tr("Строка ввода") else tr("Прямой ввод"), tint = if (direct) Accent else Text)
             }
             Box {
                 var menu by remember { mutableStateOf(false) }
-                IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "Меню") }
+                IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, tr("Меню")) }
                 DropdownMenu(menu, { menu = false }) {
-                    DropdownMenuItem({ Text("Обзор") }, { menu = false; onOverview() }, leadingIcon = { Icon(Icons.Filled.BarChart, null) })
-                    DropdownMenuItem({ Text("Файлы") }, { menu = false; onFiles() }, leadingIcon = { Icon(Icons.Filled.Folder, null) })
+                    DropdownMenuItem({ Text(tr("Обзор")) }, { menu = false; onOverview() }, leadingIcon = { Icon(Icons.Filled.BarChart, null) })
+                    DropdownMenuItem({ Text(tr("Файлы")) }, { menu = false; onFiles() }, leadingIcon = { Icon(Icons.Filled.Folder, null) })
                 }
             }
-            IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Отключиться") }
+            IconButton(onClick = onClose) { Icon(Icons.Filled.Close, tr("Отключиться")) }
         }
         if (Sessions.list.size > 1) SessionTabs(session)
 
@@ -242,7 +243,7 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
                         else -> false
                     }
                 },
-                placeholder = { Text(if (secret) "Пароль (не сохраняется)" else "Введите команду…") },
+                placeholder = { Text(if (secret) tr("Пароль (не сохраняется)") else tr("Введите команду…")) },
                 leadingIcon = if (secret) ({ Icon(Icons.Filled.Lock, null, tint = Accent) }) else null,
                 visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
                 textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = Mono),
@@ -260,7 +261,7 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
                 keyboardActions = KeyboardActions(onSend = { sendLine("\r") }),
             )
             FilledIconButton(onClick = { sendLine("\r") }, Modifier.padding(start = 8.dp)) {
-                Icon(Icons.AutoMirrored.Filled.Send, "Отправить")
+                Icon(Icons.AutoMirrored.Filled.Send, tr("Отправить"))
             }
         }
     }
@@ -271,7 +272,7 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
 fun SessionHeader(session: SshSession, onBack: () -> Unit, actions: @Composable RowScope.() -> Unit = {}) = Row(
     Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically,
 ) {
-    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") }
+    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, tr("Назад")) }
     val t = session.target
     Box(Modifier.size(8.dp).background(if (session.state == SessionState.Connected) Accent else Muted, CircleShape))
     Column(Modifier.weight(1f).padding(start = 8.dp)) {
@@ -292,8 +293,8 @@ fun SessionStatus(session: SshSession, modifier: Modifier = Modifier) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(st.error ?: "Соединение закрыто", color = if (st.error != null) Danger else Muted)
-            Button(onClick = session::start) { Text("Переподключиться") }
+            Text(st.error ?: tr("Соединение закрыто"), color = if (st.error != null) Danger else Muted)
+            Button(onClick = session::start) { Text(tr("Переподключиться")) }
         }
         SessionState.Connected -> Unit
     }
@@ -303,10 +304,10 @@ fun SessionStatus(session: SshSession, modifier: Modifier = Modifier) {
 @Composable
 fun HostKeyDialog(p: HostKeyPrompt) = AlertDialog(
     onDismissRequest = { p.answer.complete(false) },
-    title = { Text("Новый сервер") },
-    text = { Text("Отпечаток ключа ${p.host}:\n\n${p.fingerprint}\n\nСверьте его с сервером. Доверять?") },
-    confirmButton = { TextButton(onClick = { p.answer.complete(true) }) { Text("Доверять") } },
-    dismissButton = { TextButton(onClick = { p.answer.complete(false) }) { Text("Отмена") } },
+    title = { Text(tr("Новый сервер")) },
+    text = { Text(tr("Отпечаток ключа %s:\n\n%s\n\nСверьте его с сервером. Доверять?", p.host, p.fingerprint)) },
+    confirmButton = { TextButton(onClick = { p.answer.complete(true) }) { Text(tr("Доверять")) } },
+    dismissButton = { TextButton(onClick = { p.answer.complete(false) }) { Text(tr("Отмена")) } },
 )
 
 /**
