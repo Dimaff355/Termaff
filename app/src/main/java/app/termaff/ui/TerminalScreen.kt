@@ -81,6 +81,7 @@ import app.termaff.data.Snippet
 import app.termaff.data.Store
 import app.termaff.R
 import app.termaff.ssh.SessionState
+import app.termaff.ssh.Sessions
 import app.termaff.ssh.SshSession
 import org.connectbot.terminal.Terminal
 import org.connectbot.terminal.VTermKey
@@ -175,6 +176,7 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
             }
             IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Отключиться") }
         }
+        if (Sessions.list.size > 1) SessionTabs(session)
 
         // Щипок в termlib только визуальный (сбрасывается после жеста) — по его итогу меняем шрифт по-настоящему:
         // терминал пересчитывает колонки и сообщает серверу новый размер
@@ -273,6 +275,24 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
             text = { Text("Отпечаток ключа ${p.host}:\n\n${p.fingerprint}\n\nСверьте его с сервером. Доверять?") },
             confirmButton = { TextButton(onClick = { p.answer.complete(true) }) { Text("Доверять") } },
             dismissButton = { TextButton(onClick = { p.answer.complete(false) }) { Text("Отмена") } },
+        )
+    }
+}
+
+/** Переключатель открытых сессий (виден, когда их больше одной). */
+@Composable
+private fun SessionTabs(current: SshSession) = Row(
+    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
+    horizontalArrangement = Arrangement.spacedBy(6.dp),
+) {
+    Sessions.list.forEach { s ->
+        FilterChip(
+            selected = s == current, onClick = { Sessions.select(s) },
+            label = { Text(s.target.title, maxLines = 1) },
+            leadingIcon = {
+                val color = when (s.state) { SessionState.Connected -> Accent; SessionState.Connecting -> Muted; else -> Danger }
+                Box(Modifier.size(8.dp).background(color, CircleShape))
+            },
         )
     }
 }

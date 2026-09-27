@@ -1,5 +1,7 @@
 package app.termaff
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
@@ -8,6 +10,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.BackHandler
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,12 +25,14 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import app.termaff.data.Server
 import app.termaff.data.Snippet
 import app.termaff.data.Store
+import app.termaff.ssh.SessionState
 import app.termaff.ssh.Sessions
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -55,9 +60,19 @@ private enum class Tab(val title: String, val icon: ImageVector) {
 private enum class Page { Tabs, EditServer, EditSnippet, Terminal }
 
 class MainActivity : ComponentActivity() {
+    private val notifyPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
+
+    /** Android 13+: без разрешения сервис работает, но уведомление о фоновых сессиях не видно — спросим при подключении. */
+    private fun askNotifications() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) notifyPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Store.init(this)
+        Sessions.init(this)
         // Тёмная тема всегда → светлые иконки статус-бара
         enableEdgeToEdge(SystemBarStyle.dark(Color.TRANSPARENT), SystemBarStyle.dark(Color.TRANSPARENT))
         setContent {
@@ -72,14 +87,19 @@ class MainActivity : ComponentActivity() {
                 var snippet by remember { mutableStateOf<Snippet?>(null) }
                 val back = { page = Page.Tabs }
                 val session = Sessions.current
+                // Спрашиваем после входа, а не при нажатии: иначе системный диалог перекрыл бы вопрос о ключе сервера
+                LaunchedEffect(session?.state == SessionState.Connected) { if (session?.state == SessionState.Connected) askNotifications() }
                 when {
                     AppLock.locked -> LockScreen()
-                    page == Page.Terminal && session != null -> TerminalScreen(
-                        session = session,
-                        onBack = back,
-                        onClose = { Sessions.close(); back() },
-                        onReconnect = { Sessions.reconnect(session.target) },
-                    )
+                    // key: у каждой сессии своё состояние экрана (строка ввода, режим, позиция в истории)
+                    page == Page.Terminal && session != null -> key(session) {
+                        TerminalScreen(
+                            session = session,
+                            onBack = back,
+                            onClose = { Sessions.close(session); if (Sessions.current == null) back() },
+                            onReconnect = session::start,
+                        )
+                    }
                     page == Page.EditServer -> ServerEditScreen(server, back)
                     page == Page.EditSnippet -> SnippetEditScreen(snippet, back)
                     else -> Column(Modifier.fillMaxSize()) {

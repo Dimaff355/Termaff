@@ -1,30 +1,50 @@
 package app.termaff.ssh
 
+import android.content.Context
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import app.termaff.data.Server
 
-/** Живая сессия переживает экраны: «назад» из терминала её не рвёт. Пока одна; на этапе 5 — список + сервис. */
+/** Открытые сессии; переживают экраны, пока жив процесс (его держит [SessionService]). */
 object Sessions {
+    private lateinit var app: Context
+    val list = mutableStateListOf<SshSession>()
+    /** Сессия на экране терминала. */
     var current by mutableStateOf<SshSession?>(null)
         private set
 
-    /** Вернуть живую сессию к этому серверу или открыть новую. */
+    fun init(context: Context) {
+        app = context.applicationContext
+    }
+
+    /** Живая сессия к этому серверу — переключиться на неё; иначе открыть новую (со свежими настройками сервера). */
     fun open(server: Server): SshSession {
-        current?.takeIf { it.target.serverId == server.id && it.state !is SessionState.Closed }?.let { return it }
-        return reconnect(Target(server))
+        list.firstOrNull { it.target.serverId == server.id }?.let {
+            if (it.state !is SessionState.Closed) return it.also(::select)
+            close(it)
+        }
+        return SshSession(Target(server)).also { list += it; current = it; it.start() }
     }
 
-    fun reconnect(target: Target): SshSession {
-        current?.close()
-        return SshSession(target).also { current = it; it.start() }
+    fun select(session: SshSession) {
+        current = session
     }
 
-    fun close() {
-        current?.close()
-        current = null
+    fun close(session: SshSession) {
+        session.close()
+        list -= session
+        if (current == session) current = list.lastOrNull()
+        changed()
     }
 
-    fun isLive(serverId: String) = current?.let { it.target.serverId == serverId && it.state == SessionState.Connected } == true
+    fun closeAll() = list.toList().forEach(::close)
+
+    fun isLive(serverId: String) = list.any { it.target.serverId == serverId && it.state == SessionState.Connected }
+
+    /** Состояние какой-то сессии изменилось (из любого потока) — сервис показывает, сколько соединений живо. */
+    fun changed() {
+        SessionService.sync(app, list.filter { it.state !is SessionState.Closed }.map { it.target.title })
+    }
 }

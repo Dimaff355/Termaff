@@ -14,18 +14,27 @@ import com.trilead.ssh2.Session
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import org.connectbot.terminal.TerminalEmulator
 import org.connectbot.terminal.TerminalEmulatorFactory
+import java.io.IOException
 import java.security.MessageDigest
+import kotlin.concurrent.thread
 
 /** Параметры подключения с уже расшифрованными секретами. Живёт только в памяти сессии. */
 class Target(
     val serverId: String,
+    val title: String,
     val host: String,
     val port: Int,
     val user: String,
@@ -34,7 +43,7 @@ class Target(
     val key: String,
     val startup: String,
 ) {
-    constructor(s: Server) : this(s.id, s.host, s.port, s.user, Vault.decrypt(s.password), Vault.decrypt(s.key), s.startup)
+    constructor(s: Server) : this(s.id, s.title, s.host, s.port, s.user, Vault.decrypt(s.password), Vault.decrypt(s.key), s.startup)
 }
 
 /** Запрос пользователю: доверять ли ключу сервера. */
@@ -49,10 +58,13 @@ sealed interface SessionState {
 /**
  * Одно SSH-подключение: TCP → проверка ключа хоста → вход → PTY-shell.
  * Байты сервера идут в [emulator], ввод пишется через [write] в отдельной корутине (не в UI-потоке).
+ * Эмулятор живёт дольше соединения: после обрыва и переподключения экран и история остаются.
  */
 class SshSession(val target: Target) {
-    var state by mutableStateOf<SessionState>(SessionState.Connecting)
-        private set
+    private var _state by mutableStateOf<SessionState>(SessionState.Connecting)
+    var state: SessionState
+        get() = _state
+        private set(v) { _state = v; Sessions.changed() }
     var hostKeyPrompt by mutableStateOf<HostKeyPrompt?>(null)
         private set
     /** Сервер на альтернативном экране (vim, htop, mc) — нужен прямой ввод. */
@@ -66,7 +78,10 @@ class SshSession(val target: Target) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val output = Channel<ByteArray>(Channel.UNLIMITED)
-    private var conn: Connection? = null
+    @Volatile private var conn: Connection? = null
+    private var job: Job? = null
+    /** Вход уже удавался: значит, обрыв — это сеть, и есть смысл переподключаться. */
+    @Volatile private var established = false
     @Volatile private var shell: Session? = null
     /** Последний размер экрана (колонки, строки): resize может прийти раньше, чем откроется PTY. */
     @Volatile private var size = 80 to 24
@@ -83,33 +98,82 @@ class SshSession(val target: Target) {
         },
     )
 
-    fun start() = scope.launch {
-        try {
-            val c = Connection(target.host, target.port).also { conn = it }
-            c.connect({ host, port, algo, key -> verifyHostKey("$host:$port", algo, key) }, 10_000, 20_000)
-            check(authenticate(c)) { "Неверный логин, пароль или ключ" }
-            val s = c.openSession()
-            val opened = size
-            s.requestPTY("xterm-256color", opened.first, opened.second, 0, 0, null)
-            s.startShell()
-            // shell публикуем только после старта: resize посреди requestPTY мог подвесить открытие
-            shell = s
-            size.let { if (it != opened) s.resizePTY(it.first, it.second, 0, 0) }
-            state = SessionState.Connected
-            if (target.startup.isNotBlank()) write(target.startup + "\r")
-            launch { for (bytes in output) s.stdin.run { write(bytes); flush() } }
-            val buf = ByteArray(8192)
-            val input = s.stdout
+    /** Подключиться; обрыв уже работавшей сессии — переподключение с паузой 2, 4, 8… 30 с, в том же терминале. */
+    fun start() {
+        if (job?.isActive == true) return
+        job = scope.launch {
+            var attempt = 0
             while (true) {
-                val n = input.read(buf)
-                if (n < 0) break
-                emulator.writeInput(buf, 0, n)
-                scan(buf, n)
+                state = SessionState.Connecting
+                val error = try {
+                    if (connect()) return@launch close()
+                    "Связь потеряна"
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: IOException) {
+                    // Ключ хоста сменился — повтор не поможет
+                    if (generateSequence<Throwable>(e) { it.cause }.any { it is SecurityException }) return@launch close(e.text)
+                    e.text
+                } catch (e: Exception) {
+                    return@launch close(e.text)
+                } finally {
+                    disconnect()
+                }
+                ensureActive()
+                if (state == SessionState.Connected) attempt = 0
+                if (!established || attempt >= RETRIES) return@launch close(error)
+                attempt++
+                // Программа на сервере могла оставить альтернативный экран и режимы клавиш/мыши — сбрасываем локально
+                emulator.writeInput("\u001b[?1049l\u001b[?1l\u001b[?1000l\u001b[?1002l\u001b[?1006l\u001b[?2004l\u001b[0m\r\n[$error. Переподключение…]\r\n".toByteArray())
+                altScreen = false
+                secretPrompt = false
+                delay(minOf(1L shl attempt, 30L) * 1000)
             }
-            close()
-        } catch (e: Exception) {
-            close(e.message ?: e.javaClass.simpleName)
         }
+    }
+
+    /** Одно подключение до конца shell. true — shell завершился сам (exit), false — связь оборвалась. */
+    private suspend fun connect(): Boolean = coroutineScope {
+        val c = Connection(target.host, target.port).also { conn = it }
+        // Таймаут KEX включает и время ответа на «Доверять?» — новому хосту даём минуту прочитать отпечаток.
+        // Совсем без таймаута нельзя: сервер, принявший TCP и молчащий, повесил бы подключение навсегда
+        val kexTimeout = if ("${target.host}:${target.port}" in Store.knownHosts) 20_000 else 60_000
+        c.connect({ host, port, algo, key -> verifyHostKey("$host:$port", algo, key) }, 10_000, kexTimeout)
+        check(authenticate(c)) { "Неверный логин, пароль или ключ" }
+        val s = c.openSession()
+        val opened = size
+        s.requestPTY("xterm-256color", opened.first, opened.second, 0, 0, null)
+        s.startShell()
+        ensureActive()
+        // shell публикуем только после старта: resize посреди requestPTY мог подвесить открытие
+        shell = s
+        size.let { if (it != opened) s.resizePTY(it.first, it.second, 0, 0) }
+        state = SessionState.Connected
+        established = true
+        if (target.startup.isNotBlank()) write(target.startup + "\r")
+        val writer = launch { for (bytes in output) s.stdin.run { write(bytes); flush() } }
+        // Keepalive: без него мёртвое соединение (сменилась сеть, уснул роутер) висит до таймаута TCP — минуты.
+        // ping() не прерывается и держит замок Connection, поэтому ждём его отдельно, а по таймауту закрываем канал
+        val keepalive = launch {
+            while (true) {
+                delay(KEEPALIVE)
+                val pong = scope.async { runCatching { c.ping() }.isSuccess }
+                if (withTimeoutOrNull(KEEPALIVE) { pong.await() } != true) break
+            }
+            s.close()
+        }
+        val buf = ByteArray(8192)
+        val input = s.stdout
+        while (true) {
+            val n = input.read(buf)
+            if (n < 0) break
+            emulator.writeInput(buf, 0, n)
+            scan(buf, n)
+        }
+        writer.cancel()
+        keepalive.cancel()
+        // Сервер присылает код выхода перед закрытием канала; нет кода — канал закрылся вместе с соединением
+        s.exitStatus != null || s.exitSignal != null
     }
 
     /** Смотрим на поток сервера: переключение экрана (`ESC[?1049h/l`) и приглашение ввести пароль в конце вывода. */
@@ -135,8 +199,9 @@ class SshSession(val target: Target) {
             c.authenticateWithKeyboardInteractive(t.user) { _, _, n, _, _ -> Array(n) { t.password } }
     }
 
+    /** Ввод, пока нет соединения, отбрасываем: после переподключения он выполнился бы в новом shell вслепую. */
     fun write(bytes: ByteArray) {
-        output.trySend(bytes)
+        if (state == SessionState.Connected) output.trySend(bytes)
     }
 
     fun write(text: String) = write(text.toByteArray())
@@ -144,14 +209,23 @@ class SshSession(val target: Target) {
     /** Быстрая команда/сценарий: шаги подряд, каждый с Enter — shell выполнит их по очереди. */
     fun run(snippet: Snippet) = write(snippet.steps.joinToString("") { "$it\r" })
 
+    /** Закрыть соединение; [start] откроет его заново в том же терминале. */
     fun close(error: String? = null) {
         if (state is SessionState.Closed) return
         state = SessionState.Closed(error)
         hostKeyPrompt?.answer?.complete(false)
-        output.close()
-        runCatching { shell?.close() }
-        runCatching { conn?.close() }
-        scope.cancel()
+        job?.cancel()
+        disconnect()
+    }
+
+    private fun disconnect() {
+        val s = shell
+        val c = conn ?: return
+        shell = null
+        conn = null
+        while (output.tryReceive().isSuccess) Unit
+        // Не в UI-потоке: close() ждёт замок Connection, а его может держать ping на мёртвой сети
+        thread { runCatching { s?.close() }; runCatching { c.close() } }
     }
 
     /** TOFU: известный ключ — пускаем молча, новый — спрашиваем, изменившийся — отказ. */
@@ -171,6 +245,11 @@ class SshSession(val target: Target) {
         return trusted
     }
 }
+
+private const val RETRIES = 10
+private const val KEEPALIVE = 15_000L
+
+private val Exception.text get() = message ?: javaClass.simpleName
 
 private val ALT_SCREEN = Regex("\u001b\\[\\?(?:1049|1047|47)([hl])")
 private val ANSI = Regex("\u001b\\[[0-9;?]*[ -/]*[@-~]")
