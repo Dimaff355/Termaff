@@ -1,24 +1,36 @@
 package app.termaff.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import app.termaff.R
+import app.termaff.data.Store
 
-// Палитра из макета (интерфейс.png): графитовый фон, мятный акцент
-val Bg = Color(0xFF0E1113)
-val Card = Color(0xFF1A1F23)
-val Accent = Color(0xFF2EE6A6)
+/** Цвета интерфейса, зависящие от темы. selected — заливка выбранного (чипы, сегменты, липкие Ctrl/Alt). */
+private class Ui(val bg: Long, val card: Long, val accent: Long, val selected: Long, val outline: Long)
+
+// Палитра из макета (интерфейс.png): графитовый фон, мятный акцент. Розовая тема — сливовый фон, розовый акцент
+private val MintUi = Ui(0xFF0E1113, 0xFF1A1F23, 0xFF2EE6A6, 0xFF1C3A30, 0xFF2A3136)
+private val PinkUi = Ui(0xFF1C1219, 0xFF2B1C27, 0xFFFF79B8, 0xFF4A2140, 0xFF3D2A37)
+/** Тема интерфейса идёт за цветовой схемой терминала (Store.theme — snapshot-state: смена перерисовывает всё). */
+private val ui get() = if (Store.theme == "pink") PinkUi else MintUi
+
+val Bg get() = Color(ui.bg)
+val Card get() = Color(ui.card)
+val Accent get() = Color(ui.accent)
+val Selected get() = Color(ui.selected)
 val Text = Color(0xFFE6EAED)
 val Muted = Color(0xFF8A949C)
 val Danger = Color(0xFFFF5C5C)
-/** Заливка выбранного (чипы, сегменты, липкие Ctrl/Alt) — приглушённый акцент. */
-val Selected = Color(0xFF1C3A30)
 
 /** Моноширинный шрифт приложения (строка ввода, панель клавиш, ключи) — тот же, что в терминале. */
 val Mono = FontFamily(Font(R.font.jetbrains_mono))
@@ -39,12 +51,13 @@ fun TermaffTheme(content: @Composable () -> Unit) = MaterialTheme(
         // Выбранные FilterChip/SegmentedButton берут secondaryContainer — по умолчанию он сиреневый
         secondaryContainer = Selected,
         onSecondaryContainer = Accent,
-        outlineVariant = Color(0xFF2A3136),
+        outlineVariant = Color(ui.outline),
         error = Danger,
     ),
 ) {
-    // Без Scaffold/Surface цвет текста по умолчанию чёрный — задаём светлый для всех экранов
-    CompositionLocalProvider(LocalContentColor provides Text, content = content)
+    // Без Scaffold/Surface цвет текста по умолчанию чёрный — задаём светлый для всех экранов;
+    // фон — цветом темы, а не окна (windowBackground в themes.xml всегда графитовый)
+    CompositionLocalProvider(LocalContentColor provides Text) { Box(Modifier.fillMaxSize().background(Bg)) { content() } }
 }
 
 /** Цветовая схема терминала: фон, текст и 16 цветов ANSI (0xRRGGBB). */
@@ -74,6 +87,11 @@ val TermThemes = listOf(
         "nord", "Nord", 0x2E3440, 0xD8DEE9,
         0x3B4252, 0xBF616A, 0xA3BE8C, 0xEBCB8B, 0x81A1C1, 0xB48EAD, 0x88C0D0, 0xE5E9F0,
         0x4C566A, 0xBF616A, 0xA3BE8C, 0xEBCB8B, 0x81A1C1, 0xB48EAD, 0x8FBCBB, 0xECEFF4,
+    ),
+    TermTheme(
+        "pink", "Розовая", 0x1C1219, 0xF6E3EE,
+        0x2B1C27, 0xFF5C7A, 0xB5E8A0, 0xFFD18A, 0x8AB4FF, 0xFF79B8, 0x7FDBE0, 0xE8D0DD,
+        0x6E5566, 0xFF8FA6, 0xCBF2B8, 0xFFE0AA, 0xAECBFF, 0xFFA3D0, 0xA5EAED, 0xFFFFFF,
     ),
     TermTheme(
         "light", "Светлая", 0xFAFAFA, 0x383A42,

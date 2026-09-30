@@ -5,7 +5,6 @@ import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,6 +46,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import app.termaff.data.BarKeys
 import app.termaff.data.SshKey
 import app.termaff.data.Store
 import app.termaff.data.Vault
@@ -72,6 +78,8 @@ fun SettingsScreen(onEditKey: (SshKey) -> Unit) {
         }
         Section(tr("Терминал"))
         TerminalSettings()
+        Section(tr("Панель клавиш"))
+        KeysSettings()
         Section(tr("Безопасность"))
         LockSetting()
         // Названия языков — на самих языках, чтобы найти свой, даже если интерфейс на незнакомом
@@ -146,7 +154,7 @@ private fun TerminalSettings() {
         }
         if (Store.fontSize > 0) FilterChip(false, { Store.saveFontSize(0f) }, { Text(tr("Вернуть авто")) })
         Text(tr("Цветовая схема"), Modifier.padding(top = 8.dp, bottom = 8.dp), style = MaterialTheme.typography.titleMedium)
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TermThemes.forEach { t ->
                 FilterChip(
                     t == theme, { Store.saveTheme(t.id) }, { Text(tr(t.name)) },
@@ -154,6 +162,43 @@ private fun TerminalSettings() {
                 )
             }
         }
+    }
+}
+
+/** Панель клавиш терминала: нажатие выбирает клавишу (сдвинуть ←/→ или скрыть), скрытая — нажатие возвращает в конец. */
+@Composable
+private fun KeysSettings() {
+    val bar = Store.bar
+    var picked by remember { mutableStateOf<String?>(null) }
+    @Composable
+    fun key(label: String, selected: Boolean, hidden: Boolean = false, onClick: () -> Unit) = Text(
+        label, color = if (selected) Accent else if (hidden) Muted else Text, fontFamily = Mono,
+        modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(if (selected) Selected else Bg)
+            .clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 8.dp),
+    )
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Card).padding(16.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            bar.forEach { k -> key(k, k == picked) { picked = k.takeIf { it != picked } } }
+        }
+        val i = bar.indexOf(picked)
+        if (i < 0) Text(tr("Нажмите клавишу, чтобы переместить или скрыть"), Modifier.padding(top = 8.dp),
+            color = Muted, style = MaterialTheme.typography.bodyMedium)
+        else Row(verticalAlignment = Alignment.CenterVertically) {
+            fun move(to: Int) = Store.saveBar(bar.toMutableList().apply { add(to, removeAt(i)) })
+            IconButton(onClick = { move(i - 1) }, enabled = i > 0) { Icon(Icons.AutoMirrored.Filled.ArrowBack, tr("Левее")) }
+            IconButton(onClick = { move(i + 1) }, enabled = i < bar.lastIndex) { Icon(Icons.AutoMirrored.Filled.ArrowForward, tr("Правее")) }
+            TextButton(onClick = { Store.saveBar(bar - bar[i]); picked = null }) { Text(tr("Скрыть")) }
+        }
+        val hidden = BarKeys - bar.toSet()
+        if (hidden.isNotEmpty()) {
+            Text(tr("Скрытые — нажмите, чтобы вернуть"), Modifier.padding(top = 8.dp, bottom = 8.dp),
+                color = Muted, style = MaterialTheme.typography.bodyMedium)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                hidden.forEach { k -> key(k, false, hidden = true) { Store.saveBar(bar + k) } }
+            }
+        }
+        if (bar != BarKeys) FilterChip(false, { Store.saveBar(BarKeys); picked = null }, { Text(tr("По умолчанию")) },
+            Modifier.padding(top = 8.dp))
     }
 }
 

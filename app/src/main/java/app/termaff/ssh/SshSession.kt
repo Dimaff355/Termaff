@@ -29,6 +29,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import org.connectbot.terminal.TerminalEmulator
 import org.connectbot.terminal.TerminalEmulatorFactory
+import org.connectbot.terminal.VTermKey
 import java.io.IOException
 import java.security.MessageDigest
 import kotlin.concurrent.thread
@@ -91,7 +92,11 @@ class SshSession(val target: Target) {
     @Volatile private var established = false
     @Volatile private var shell: Session? = null
     /** Последний размер экрана (колонки, строки): resize может прийти раньше, чем откроется PTY. */
-    @Volatile private var size = 80 to 24
+    @Volatile var size = 80 to 24
+        private set
+    /** Программа включила мышь (`ESC[?1000h`…) и её формат SGR (`?1006h`) — свайп шлёт ей колесо. */
+    @Volatile private var mouse = false
+    @Volatile private var sgrMouse = false
 
     val emulator: TerminalEmulator = TerminalEmulatorFactory.create(
         defaultForeground = Color(0xFFE6EAED),
@@ -133,6 +138,8 @@ class SshSession(val target: Target) {
                 // Программа на сервере могла оставить альтернативный экран и режимы клавиш/мыши — сбрасываем локально
                 emulator.writeInput(("\u001b[?1049l\u001b[?1l\u001b[?1000l\u001b[?1002l\u001b[?1006l\u001b[?2004l\u001b[0m\r\n[" + tr("%s. Переподключение…", error) + "]\r\n").toByteArray())
                 altScreen = false
+                mouse = false
+                sgrMouse = false
                 secretPrompt = false
                 delay(minOf(1L shl attempt, 30L) * 1000)
             }
@@ -183,11 +190,32 @@ class SshSession(val target: Target) {
         s.exitStatus != null || s.exitSignal != null
     }
 
-    /** Смотрим на поток сервера: переключение экрана (`ESC[?1049h/l`) и приглашение ввести пароль в конце вывода. */
+    /**
+     * Смотрим на поток сервера: режимы DEC (`ESC[?1049;1006h` — альтернативный экран, мышь)
+     * и приглашение ввести пароль в конце вывода.
+     */
     private fun scan(buf: ByteArray, n: Int) {
-        ALT_SCREEN.findAll(String(buf, 0, n, Charsets.ISO_8859_1)).lastOrNull()?.let { altScreen = it.groupValues[1] == "h" }
+        for (m in DEC_MODE.findAll(String(buf, 0, n, Charsets.ISO_8859_1))) {
+            val on = m.groupValues[2] == "h"
+            for (p in m.groupValues[1].split(';')) when (p) {
+                "1049", "1047", "47" -> altScreen = on
+                "1000", "1002", "1003" -> mouse = on
+                "1006" -> sgrMouse = on
+            }
+        }
         val from = maxOf(0, n - 256)
         secretPrompt = SECRET_PROMPT.containsMatchIn(String(buf, from, n - from).replace(ANSI, ""))
+    }
+
+    /**
+     * Прокрутка на альтернативном экране (истории у терминала там нет): программе с мышью (tmux, mc, vim) —
+     * колесо в клетке [col], [row] (с 1), без мыши (less, man, htop) — ↑/↓, как alternateScroll в xterm.
+     */
+    fun wheel(up: Boolean, col: Int, row: Int) = when {
+        !mouse -> emulator.dispatchKey(0, if (up) VTermKey.UP else VTermKey.DOWN)
+        sgrMouse -> write("\u001b[<${if (up) 64 else 65};$col;${row}M")
+        // Старый формат X10: байт = 32 + значение, в ASCII помещаются клетки до 95
+        else -> write("\u001b[M" + (if (up) 96 else 97).toChar() + (32 + col.coerceAtMost(95)).toChar() + (32 + row.coerceAtMost(95)).toChar())
     }
 
     /** Соединение, пока вход выполнен: обзор и SFTP открывают свои каналы поверх него — без второго входа. */
@@ -273,6 +301,6 @@ private const val KEEPALIVE = 15_000L
 
 private val Exception.text get() = message ?: javaClass.simpleName
 
-private val ALT_SCREEN = Regex("\u001b\\[\\?(?:1049|1047|47)([hl])")
+private val DEC_MODE = Regex("\u001b\\[\\?([0-9;]+)([hl])")
 private val ANSI = Regex("\u001b\\[[0-9;?]*[ -/]*[@-~]")
 private val SECRET_PROMPT = Regex("(?i)(password|passphrase|пароль|密码)[^\n]*[:：]\\s*$")

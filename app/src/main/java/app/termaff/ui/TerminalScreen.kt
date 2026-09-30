@@ -95,6 +95,8 @@ import app.termaff.ssh.SshSession
 import app.termaff.tr
 import org.connectbot.terminal.Terminal
 import org.connectbot.terminal.VTermKey
+import kotlin.math.abs
+import kotlin.math.sign
 
 // Модификаторы libvterm (vterm_keycodes.h)
 private const val ALT = 2
@@ -187,15 +189,34 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
         }
         if (Sessions.list.size > 1) SessionTabs(session)
 
-        // Щипок в termlib только визуальный (сбрасывается после жеста) — по его итогу меняем шрифт по-настоящему:
-        // терминал пересчитывает колонки и сообщает серверу новый размер
+        // Жесты поверх termlib (события не потребляем — его скролл истории и выделение долгим тапом работают):
+        // - щипок в termlib только визуальный (сбрасывается после жеста) — по его итогу меняем шрифт по-настоящему,
+        //   терминал пересчитывает колонки и сообщает серверу новый размер;
+        // - на альтернативном экране истории нет — вертикальный свайп прокручивает саму программу (SshSession.wheel).
+        //   Свайп = сдвиг раньше, чем сработает долгое нажатие; после него палец выделяет текст.
         Box(Modifier.weight(1f).fillMaxWidth().background(theme.bg).pointerInput(Unit) {
             awaitEachGesture {
-                awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                 var zoom = 1f
+                var scroll: Boolean? = null
+                var dy = 0f
                 do {
                     val e = awaitPointerEvent(PointerEventPass.Initial)
-                    if (e.changes.count { it.pressed } > 1) zoom *= e.calculateZoom()
+                    val c = e.changes[0]
+                    if (e.changes.count { it.pressed } > 1) {
+                        zoom *= e.calculateZoom()
+                        scroll = false
+                    } else if (scroll != false && session.altScreen) {
+                        dy += c.position.y - c.previousPosition.y
+                        if (scroll == null && abs(c.position.y - down.position.y) > viewConfiguration.touchSlop)
+                            scroll = c.uptimeMillis - down.uptimeMillis < viewConfiguration.longPressTimeoutMillis
+                        val (cols, rows) = session.size
+                        val step = size.height.toFloat() / rows
+                        while (scroll == true && abs(dy) >= step) {
+                            session.wheel(dy > 0, (c.position.x * cols / size.width).toInt() + 1, (c.position.y / step).toInt() + 1)
+                            dy -= step * sign(dy)
+                        }
+                    }
                 } while (e.changes.any { it.pressed })
                 if (zoom != 1f) Store.saveFontSize((currentFont * zoom).coerceIn(6f, 24f))
             }
@@ -364,6 +385,7 @@ private fun SnippetsBar(serverId: String, onRun: (Snippet) -> Unit, onInsert: (S
 
 @Composable
 private fun KeysBar(mods: StickyMods, key: (Int) -> Unit, type: (String) -> Unit, arrow: (Boolean) -> Unit, onTab: () -> Unit) {
+    if (Store.bar.isEmpty()) return
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -374,18 +396,21 @@ private fun KeysBar(mods: StickyMods, key: (Int) -> Unit, type: (String) -> Unit
             modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(if (selected) Selected else Card)
                 .clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 10.dp),
         )
-        k("Ctrl", mods.ctrl) { mods.ctrl = !mods.ctrl }
-        k("Alt", mods.alt) { mods.alt = !mods.alt }
-        k("Esc") { key(VTermKey.ESCAPE) }
-        k("Tab", onClick = onTab)
-        k("↑") { arrow(true) }
-        k("↓") { arrow(false) }
-        k("←") { key(VTermKey.LEFT) }
-        k("→") { key(VTermKey.RIGHT) }
-        for (s in listOf("|", "~", "/", "-", "$", "&", ">")) k(s) { type(s) }
-        k("Home") { key(VTermKey.HOME) }
-        k("End") { key(VTermKey.END) }
-        k("PgUp") { key(VTermKey.PAGEUP) }
-        k("PgDn") { key(VTermKey.PAGEDOWN) }
+        // Набор и порядок — из Настроек
+        for (l in Store.bar) when (l) {
+            "Ctrl" -> k(l, mods.ctrl) { mods.ctrl = !mods.ctrl }
+            "Alt" -> k(l, mods.alt) { mods.alt = !mods.alt }
+            "Esc" -> k(l) { key(VTermKey.ESCAPE) }
+            "Tab" -> k(l, onClick = onTab)
+            "↑" -> k(l) { arrow(true) }
+            "↓" -> k(l) { arrow(false) }
+            "←" -> k(l) { key(VTermKey.LEFT) }
+            "→" -> k(l) { key(VTermKey.RIGHT) }
+            "Home" -> k(l) { key(VTermKey.HOME) }
+            "End" -> k(l) { key(VTermKey.END) }
+            "PgUp" -> k(l) { key(VTermKey.PAGEUP) }
+            "PgDn" -> k(l) { key(VTermKey.PAGEDOWN) }
+            else -> k(l) { type(l) }
+        }
     }
 }

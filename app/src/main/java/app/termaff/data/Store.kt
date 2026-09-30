@@ -52,6 +52,9 @@ data class Snippet(
 }
 
 /** Всё состояние приложения — один JSON-файл в приватной папке. Записи атомарные (tmp + rename). */
+/** Все клавиши панели терминала в порядке по умолчанию. */
+val BarKeys = listOf("Ctrl", "Alt", "Esc", "Tab", "↑", "↓", "←", "→", "|", "~", "/", "-", "$", "&", ">", "Home", "End", "PgUp", "PgDn")
+
 object Store {
     private lateinit var file: File
 
@@ -82,6 +85,10 @@ object Store {
 
     /** Язык интерфейса: ru/en/zh; пусто — как в системе. */
     var lang by mutableStateOf("")
+        private set
+
+    /** Панель клавиш терминала: видимые клавиши по порядку (подписи из [BarKeys]). */
+    var bar by mutableStateOf(BarKeys)
         private set
 
     fun init(context: Context) {
@@ -127,6 +134,8 @@ object Store {
     fun saveTheme(id: String) = update { theme = id }
 
     fun saveLang(code: String) = update { lang = code }
+
+    fun saveBar(keys: List<String>) = update { bar = keys }
 
     fun trustHost(hostPort: String, fingerprint: String) = update { knownHosts = knownHosts + (hostPort to fingerprint) }
 
@@ -188,6 +197,7 @@ object Store {
         fontSize = o.optDouble("font", 0.0).toFloat()
         theme = o.optString("theme")
         lang = o.optString("lang")
+        bar = o.optJSONArray("bar")?.let { a -> (0 until a.length()).map(a::getString).filter(BarKeys::contains) } ?: BarKeys
         return migrated.isNotEmpty()
     }
 
@@ -210,4 +220,5 @@ object Store {
         .put("font", fontSize.toDouble())
         .put("theme", theme)
         .put("lang", lang)
+        .put("bar", JSONArray(bar))
 }
