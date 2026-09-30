@@ -119,7 +119,8 @@ private fun ServerCard(
                 if (Sessions.isLive(s.id)) Box(Modifier.padding(end = 8.dp).size(8.dp).background(Accent, CircleShape))
                 Text(s.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
             }
-            Text("${s.user}@${s.host}" + if (s.port != 22) ":${s.port}" else "", color = Muted,
+            Text("${s.user}@${s.host}" + (if (s.port != 22) ":${s.port}" else "") +
+                Store.server(s.jumpId)?.let { " · " + tr("через %s", it.title) }.orEmpty(), color = Muted,
                 style = MaterialTheme.typography.bodyMedium, maxLines = 1)
             if (s.tags.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { s.tags.forEach { Tag(it) } }
         }

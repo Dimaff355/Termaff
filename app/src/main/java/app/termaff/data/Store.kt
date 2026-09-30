@@ -23,6 +23,8 @@ data class Server(
     val tags: List<String> = emptyList(),
     /** Команда, выполняемая сразу после входа. */
     val startup: String = "",
+    /** Сервер-посредник (как `ssh -J`): подключаемся к этому серверу через него; пусто — напрямую. */
+    val jumpId: String = "",
 ) {
     val title get() = name.ifBlank { host }
 }
@@ -103,7 +105,7 @@ object Store {
 
     /** Команды, привязанные только к этому серверу, удаляются вместе с ним (иначе стали бы общими для всех). */
     fun delete(id: String) = update {
-        servers = servers.filter { it.id != id }
+        servers = servers.filter { it.id != id }.map { if (it.jumpId == id) it.copy(jumpId = "") else it }
         snippets = snippets.mapNotNull { s ->
             if (id !in s.serverIds) s else s.copy(serverIds = s.serverIds - id).takeIf { it.serverIds.isNotEmpty() }
         }
@@ -126,6 +128,16 @@ object Store {
     }
 
     fun key(id: String) = keys.firstOrNull { it.id == id }
+
+    fun server(id: String) = servers.firstOrNull { it.id == id }
+
+    /** Цепочка посредников сервера, от ближнего к телефону; на цикле обрывается. */
+    fun jumps(s: Server): List<Server> {
+        val chain = ArrayList<Server>()
+        var j = server(s.jumpId)
+        while (j != null && j.id != s.id && j !in chain) { chain.add(0, j); j = server(j.jumpId) }
+        return chain
+    }
 
     fun saveLock(on: Boolean) = update { lock = on }
 
@@ -169,6 +181,7 @@ object Store {
                 keyId = s.optString("keyId"),
                 tags = s.optJSONArray("tags")?.let { t -> (0 until t.length()).map(t::getString) }.orEmpty(),
                 startup = s.optString("startup"),
+                jumpId = s.optString("jump"),
             )
             val inline = s.optString("key")
             if (inline.isNotEmpty()) {
@@ -207,6 +220,7 @@ object Store {
             JSONObject()
                 .put("id", s.id).put("name", s.name).put("host", s.host).put("port", s.port).put("user", s.user)
                 .put("password", s.password).put("keyId", s.keyId).put("tags", JSONArray(s.tags)).put("startup", s.startup)
+                .put("jump", s.jumpId)
         }))
         .put("snippets", JSONArray(snippets.map { s ->
             JSONObject().put("id", s.id).put("name", s.name).put("command", s.command).put("servers", JSONArray(s.serverIds))

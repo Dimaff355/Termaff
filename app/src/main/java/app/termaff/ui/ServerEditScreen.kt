@@ -57,6 +57,9 @@ fun ServerEditScreen(server: Server?, onDone: () -> Unit) {
     var useKey by remember { mutableStateOf(keyId.isNotEmpty()) }
     var tags by remember { mutableStateOf(s.tags.joinToString(", ")) }
     var startup by remember { mutableStateOf(s.startup) }
+    var jumpId by remember { mutableStateOf(s.jumpId.takeIf { Store.server(it) != null }.orEmpty()) }
+    // Посредником не может быть сам сервер и те, кто сами ходят через него (цикл)
+    val jumps = Store.servers.filter { it.id != s.id && Store.jumps(it).none { j -> j.id == s.id } }
     val valid = host.isNotBlank() && user.isNotBlank() && (port.toIntOrNull() ?: 0) in 1..65535 && (!useKey || keyId.isNotEmpty())
 
     fun save() {
@@ -65,7 +68,7 @@ fun ServerEditScreen(server: Server?, onDone: () -> Unit) {
                 name = name.trim(), host = host.trim(), port = port.toInt(), user = user.trim(),
                 password = if (useKey) "" else Vault.encrypt(password), keyId = if (useKey) keyId else "",
                 tags = tags.split(',').map(String::trim).filter(String::isNotEmpty),
-                startup = startup.trim(),
+                startup = startup.trim(), jumpId = jumpId,
             ),
         )
         onDone()
@@ -103,6 +106,13 @@ fun ServerEditScreen(server: Server?, onDone: () -> Unit) {
                 Store.keys.forEach { k ->
                     FilterChip(keyId == k.id, { keyId = k.id }, { Text(k.name) },
                         leadingIcon = { Icon(Icons.Filled.Key, null, Modifier.size(18.dp)) })
+                }
+            }
+            if (jumps.isNotEmpty()) {
+                Text(tr("Подключаться через сервер (ssh -J)"), color = Muted)
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(jumpId.isEmpty(), { jumpId = "" }, { Text(tr("Напрямую")) })
+                    jumps.forEach { j -> FilterChip(jumpId == j.id, { jumpId = j.id }, { Text(j.title) }) }
                 }
             }
             Field(tags, { tags = it }, tr("Теги через запятую"))

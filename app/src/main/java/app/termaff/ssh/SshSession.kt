@@ -12,6 +12,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import com.trilead.ssh2.Connection
+import com.trilead.ssh2.LocalStreamForwarder
 import com.trilead.ssh2.Session
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -31,6 +32,9 @@ import org.connectbot.terminal.TerminalEmulator
 import org.connectbot.terminal.TerminalEmulatorFactory
 import org.connectbot.terminal.VTermKey
 import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
+import java.net.Socket
 import java.security.MessageDigest
 import kotlin.concurrent.thread
 
@@ -47,10 +51,13 @@ class Target(
     /** Пароль ключа (если вход по ключу). */
     val passphrase: String,
     val startup: String,
+    /** Посредники (`ssh -J`) от ближнего к телефону: каждый следующий хост открывается через канал предыдущего. */
+    val jumps: List<Target> = emptyList(),
 ) {
-    constructor(s: Server, k: SshKey? = Store.key(s.keyId)) : this(
+    constructor(s: Server, k: SshKey? = Store.key(s.keyId), hops: Boolean = true) : this(
         s.id, s.title, s.host, s.port, s.user, Vault.decrypt(s.password),
         k?.let { Vault.decrypt(it.private) }.orEmpty(), k?.let { Vault.decrypt(it.passphrase) }.orEmpty(), s.startup,
+        if (hops) Store.jumps(s).map { Target(it, hops = false) } else emptyList(),
     )
 }
 
@@ -87,6 +94,8 @@ class SshSession(val target: Target) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val output = Channel<ByteArray>(Channel.UNLIMITED)
     @Volatile private var conn: Connection? = null
+    /** Все соединения цепочки: посредники и сам сервер (последний). */
+    @Volatile private var conns = emptyList<Connection>()
     private var job: Job? = null
     /** Вход уже удавался: значит, обрыв — это сеть, и есть смысл переподключаться. */
     @Volatile private var established = false
@@ -148,12 +157,7 @@ class SshSession(val target: Target) {
 
     /** Одно подключение до конца shell. true — shell завершился сам (exit), false — связь оборвалась. */
     private suspend fun connect(): Boolean = coroutineScope {
-        val c = Connection(target.host, target.port).also { conn = it }
-        // Таймаут KEX включает и время ответа на «Доверять?» — новому хосту даём минуту прочитать отпечаток.
-        // Совсем без таймаута нельзя: сервер, принявший TCP и молчащий, повесил бы подключение навсегда
-        val kexTimeout = if ("${target.host}:${target.port}" in Store.knownHosts) 20_000 else 60_000
-        c.connect({ host, port, algo, key -> verifyHostKey("$host:$port", algo, key) }, 10_000, kexTimeout)
-        check(authenticate(c)) { tr("Неверный логин, пароль или ключ") }
+        val c = open().also { conn = it }
         val s = c.openSession()
         val opened = size
         s.requestPTY("xterm-256color", opened.first, opened.second, 0, 0, null)
@@ -188,6 +192,30 @@ class SshSession(val target: Target) {
         keepalive.cancel()
         // Сервер присылает код выхода перед закрытием канала; нет кода — канал закрылся вместе с соединением
         s.exitStatus != null || s.exitSignal != null
+    }
+
+    /**
+     * TCP → ключ хоста → вход, по цепочке посредников: следующий хост — через канал direct-tcpip предыдущего.
+     * Ключ хоста за посредником запоминаем вместе с путём (`jump:22>127.0.0.1:2222`): за разными посредниками
+     * один и тот же адрес — разные машины.
+     */
+    private fun open(): Connection {
+        var via: Connection? = null
+        var path = ""
+        for (t in target.jumps + target) {
+            val c = Connection(t.host, t.port)
+            via?.let { v -> c.setProxyData { host, port, _ -> Hop(v.createLocalStreamForwarder(host, port)) } }
+            conns = conns + c
+            val hostPort = "$path${t.host}:${t.port}"
+            // Таймаут KEX включает и время ответа на «Доверять?» — новому хосту даём минуту прочитать отпечаток.
+            // Совсем без таймаута нельзя: сервер, принявший TCP и молчащий, повесил бы подключение навсегда
+            val kexTimeout = if (hostPort in Store.knownHosts) 20_000 else 60_000
+            c.connect({ _, _, algo, key -> verifyHostKey(hostPort, algo, key) }, 10_000, kexTimeout)
+            check(authenticate(c, t)) { tr("Неверный логин, пароль или ключ").let { if (t === target) it else "${t.title}: $it" } }
+            via = c
+            path = "$hostPort>"
+        }
+        return via!!
     }
 
     /**
@@ -239,8 +267,7 @@ class SshSession(val target: Target) {
         if (history.size > 200) history.removeAt(0)
     }
 
-    private fun authenticate(c: Connection): Boolean {
-        val t = target
+    private fun authenticate(c: Connection, t: Target): Boolean {
         if (t.key.isNotBlank()) return c.authenticateWithPublicKey(t.user, pemLines(t.key).toCharArray(), t.passphrase.ifEmpty { null })
         val methods = c.getRemainingAuthMethods(t.user)
         if ("password" in methods && c.authenticateWithPassword(t.user, t.password)) return true
@@ -270,12 +297,15 @@ class SshSession(val target: Target) {
 
     private fun disconnect() {
         val s = shell
-        val c = conn ?: return
+        val cs = conns
+        if (cs.isEmpty()) return
         shell = null
         conn = null
+        conns = emptyList()
         while (output.tryReceive().isSuccess) Unit
-        // Не в UI-потоке: close() ждёт замок Connection, а его может держать ping на мёртвой сети
-        thread { runCatching { s?.close() }; runCatching { c.close() } }
+        // Не в UI-потоке: close() ждёт замок Connection, а его может держать ping на мёртвой сети.
+        // Сначала сам сервер, потом посредники — от дальнего к ближнему
+        thread { runCatching { s?.close() }; cs.asReversed().forEach { runCatching { it.close() } } }
     }
 
     /** TOFU: известный ключ — пускаем молча, новый — спрашиваем, изменившийся — отказ. */
@@ -294,6 +324,13 @@ class SshSession(val target: Target) {
         if (trusted) Store.trustHost(hostPort, fp)
         return trusted
     }
+}
+
+/** «Сокет» поверх канала посредника: sshlib берёт у него только потоки и close(). */
+private class Hop(private val f: LocalStreamForwarder) : Socket() {
+    override fun getInputStream(): InputStream = f.inputStream
+    override fun getOutputStream(): OutputStream = f.outputStream
+    override fun close() = runCatching { f.close() }.let {}
 }
 
 private const val RETRIES = 10

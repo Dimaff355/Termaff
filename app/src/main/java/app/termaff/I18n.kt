@@ -64,6 +64,9 @@ private val T = mapOf(
     "Ключей пока нет. Создайте или импортируйте ключ в Настройках." to
         l("No keys yet. Create or import one in Settings.", "还没有密钥。请在设置中创建或导入。"),
     "Теги через запятую" to l("Tags, comma-separated", "标签，用逗号分隔"),
+    "Подключаться через сервер (ssh -J)" to l("Connect via server (ssh -J)", "通过服务器连接（ssh -J）"),
+    "Напрямую" to l("Direct", "直接连接"),
+    "через %s" to l("via %s", "经由 %s"),
     "Команда после входа (необязательно)" to l("Command after login (optional)", "登录后执行的命令（可选）"),
 
     // Терминал
