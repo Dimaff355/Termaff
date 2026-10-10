@@ -91,6 +91,7 @@ private val T = mapOf(
     "Отключить все" to l("Disconnect all", "全部断开"),
     "Нет соединения" to l("Not connected", "未连接"),
     "Связь потеряна" to l("Connection lost", "连接中断"),
+    "Нет соединения, переподключение…" to l("No connection, reconnecting…", "无连接，正在重新连接…"),
     "Неверный логин, пароль или ключ" to l("Wrong username, password or key", "用户名、密码或密钥错误"),
     "Ключ сервера изменился! Возможна атака MITM.\nБыл: %s\nСейчас: %s" to l(
         "The server key has changed! Possible MITM attack.\nWas: %s\nNow: %s",

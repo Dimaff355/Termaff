@@ -1,6 +1,8 @@
 package app.termaff.ssh
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -17,6 +19,20 @@ object Sessions {
 
     fun init(context: Context) {
         app = context.applicationContext
+        // Сеть пропала или сменилась (Wi-Fi → моб. интернет): старые сокеты мертвы — рвём сразу, не ждём keepalive
+        var last: Network? = null
+        app.getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                val switched = last != null && last != network
+                last = network
+                list.toList().forEach { if (switched) it.networkLost() else it.retryNow() }
+            }
+
+            override fun onLost(network: Network) {
+                if (last == network) last = null
+                list.toList().forEach { it.networkLost() }
+            }
+        })
     }
 
     /** Живая сессия к этому серверу — переключиться на неё; иначе открыть новую (со свежими настройками сервера). */
@@ -45,6 +61,6 @@ object Sessions {
 
     /** Состояние какой-то сессии изменилось (из любого потока) — сервис показывает, сколько соединений живо. */
     fun changed() {
-        SessionService.sync(app, list.filter { it.state !is SessionState.Closed }.map { it.target.title })
+        SessionService.sync(app, list.filter { it.state !is SessionState.Closed }.map { it.target.title to (it.state == SessionState.Connected) })
     }
 }

@@ -8,23 +8,39 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.PowerManager
 import app.termaff.R
 import app.termaff.tr
 
 /**
  * Foreground service: пока есть живые сессии, система не убивает процесс в фоне и не режет ему сеть.
- * Сам ничего не делает — соединения живут в [Sessions]; сервис лишь держит уведомление.
+ * Соединения живут в [Sessions]; сервис держит уведомление и блокировки CPU/Wi-Fi, чтобы сон экрана не рвал сессии.
  */
 class SessionService : Service() {
+    private var wake: PowerManager.WakeLock? = null
+    private var wifi: WifiManager.WifiLock? = null
+
     override fun onBind(intent: Intent?) = null
+
+    override fun onDestroy() {
+        wake?.release()
+        wifi?.release()
+        super.onDestroy()
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == STOP) {
             Sessions.closeAll()
             return START_NOT_STICKY
         }
-        val n = notification(this, titles)
+        val n = notification(this, states)
+        if (wake == null) {
+            wake = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "termaff:sessions").apply { acquire() }
+            val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) WifiManager.WIFI_MODE_FULL_LOW_LATENCY else WifiManager.WIFI_MODE_FULL_HIGH_PERF
+            wifi = applicationContext.getSystemService(WifiManager::class.java).createWifiLock(mode, "termaff:sessions").apply { acquire() }
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         } else {
@@ -47,13 +63,14 @@ class SessionService : Service() {
         @Volatile private var running = false
         /** Сервис уже вызвал startForeground — только теперь его можно останавливать через stopService. */
         private var started = false
-        @Volatile private var titles = emptyList<String>()
+        /** Живые сессии: имя и признак «связь есть». */
+        @Volatile private var states = emptyList<Pair<String, Boolean>>()
 
         /** Запустить/обновить/остановить сервис по списку живых сессий. */
         @Synchronized
-        fun sync(context: Context, live: List<String>) {
-            if (live == titles && running == live.isNotEmpty()) return
-            titles = live
+        fun sync(context: Context, live: List<Pair<String, Boolean>>) {
+            if (live == states && running == live.isNotEmpty()) return
+            states = live
             val intent = Intent(context, SessionService::class.java)
             when {
                 live.isEmpty() -> {
@@ -66,7 +83,7 @@ class SessionService : Service() {
             }
         }
 
-        private fun notification(context: Context, live: List<String>): Notification {
+        private fun notification(context: Context, live: List<Pair<String, Boolean>>): Notification {
             val nm = context.getSystemService(NotificationManager::class.java)
             nm.createNotificationChannel(NotificationChannel(CHANNEL, tr("SSH-сессии"), NotificationManager.IMPORTANCE_LOW))
             val open = PendingIntent.getActivity(
@@ -75,10 +92,15 @@ class SessionService : Service() {
             val stop = PendingIntent.getService(
                 context, 1, Intent(context, SessionService::class.java).setAction(STOP), PendingIntent.FLAG_IMMUTABLE,
             )
+            val up = live.count { it.second }
             return Notification.Builder(context, CHANNEL)
                 .setSmallIcon(R.drawable.ic_notify)
-                .setContentTitle(if (live.size == 1) tr("SSH-сессия открыта") else tr("SSH-сессий открыто: %s", live.size))
-                .setContentText(live.joinToString(", "))
+                .setContentTitle(when {
+                    up == 0 -> tr("Нет соединения, переподключение…")
+                    live.size == 1 -> tr("SSH-сессия открыта")
+                    else -> tr("SSH-сессий открыто: %s", up)
+                })
+                .setContentText(live.joinToString(", ") { if (it.second) it.first else "${it.first} ✕" })
                 .setContentIntent(open)
                 .setOngoing(true)
                 .addAction(Notification.Action.Builder(null, tr("Отключить все"), stop).build())

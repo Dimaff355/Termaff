@@ -97,6 +97,8 @@ class SshSession(val target: Target) {
     /** Все соединения цепочки: посредники и сам сервер (последний). */
     @Volatile private var conns = emptyList<Connection>()
     private var job: Job? = null
+    /** Будит паузу перед повтором: сеть вернулась — незачем ждать. */
+    private val wake = Channel<Unit>(Channel.CONFLATED)
     /** Вход уже удавался: значит, обрыв — это сеть, и есть смысл переподключаться. */
     @Volatile private var established = false
     @Volatile private var shell: Session? = null
@@ -142,7 +144,7 @@ class SshSession(val target: Target) {
                 }
                 ensureActive()
                 if (state == SessionState.Connected) attempt = 0
-                if (!established || attempt >= RETRIES) return@launch close(error)
+                if (!established) return@launch close(error)
                 attempt++
                 // Программа на сервере могла оставить альтернативный экран и режимы клавиш/мыши — сбрасываем локально
                 emulator.writeInput(("\u001b[?1049l\u001b[?1l\u001b[?1000l\u001b[?1002l\u001b[?1006l\u001b[?2004l\u001b[0m\r\n[" + tr("%s. Переподключение…", error) + "]\r\n").toByteArray())
@@ -150,9 +152,22 @@ class SshSession(val target: Target) {
                 mouse = false
                 sgrMouse = false
                 secretPrompt = false
-                delay(minOf(1L shl attempt, 30L) * 1000)
+                // Связи нет — так и показываем (иначе индикатор и уведомление врут). Повторяем, пока пользователь не закроет
+                state = SessionState.Connecting
+                wake.tryReceive()
+                withTimeoutOrNull(minOf(1L shl minOf(attempt, 5), 30L) * 1000) { wake.receive() }
             }
         }
+    }
+
+    /** Сеть пропала или сменилась: рвём соединение, цикл [start] переподключит. */
+    fun networkLost() {
+        if (state == SessionState.Connected) disconnect()
+    }
+
+    /** Появилась сеть: если ждём повтора — не ждём дальше. */
+    fun retryNow() {
+        if (state == SessionState.Connecting) wake.trySend(Unit)
     }
 
     /** Одно подключение до конца shell. true — shell завершился сам (exit), false — связь оборвалась. */
@@ -333,7 +348,6 @@ private class Hop(private val f: LocalStreamForwarder) : Socket() {
     override fun close() = runCatching { f.close() }.let {}
 }
 
-private const val RETRIES = 10
 private const val KEEPALIVE = 15_000L
 
 private val Exception.text get() = message ?: javaClass.simpleName
