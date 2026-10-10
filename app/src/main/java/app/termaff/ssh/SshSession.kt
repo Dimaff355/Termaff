@@ -147,7 +147,10 @@ class SshSession(val target: Target) {
                 if (!established) return@launch close(error)
                 attempt++
                 // Программа на сервере могла оставить альтернативный экран и режимы клавиш/мыши — сбрасываем локально
-                emulator.writeInput(("\u001b[?1049l\u001b[?1l\u001b[?1000l\u001b[?1002l\u001b[?1006l\u001b[?2004l\u001b[0m\r\n[" + tr("%s. Переподключение…", error) + "]\r\n").toByteArray())
+                emulator.writeInput(("\u001b[?1049l\u001b[?1l\u001b[?1000l\u001b[?1002l\u001b[?1006l\u001b[?2004l\u001b[0m\r\n[" + tr("%s. Переподключение…", error) + "]\r\n" +
+                    // Первый повтор после обрыва: старый экран (хоть бы и TUI вроде Cursor) уходит в историю, дальше — чистый лист,
+                    // иначе новый вывод ложится поверх остатков интерфейса
+                    (if (attempt == 1) "\r\n".repeat(size.second) + "\u001b[H\u001b[2J" else "")).toByteArray())
                 altScreen = false
                 mouse = false
                 sgrMouse = false
