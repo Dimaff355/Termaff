@@ -99,15 +99,17 @@ import kotlin.math.abs
 import kotlin.math.sign
 
 // Модификаторы libvterm (vterm_keycodes.h)
+private const val SHIFT = 1
 private const val ALT = 2
 private const val CTRL = 4
 
-/** Липкие Ctrl/Alt с панели клавиш: действуют на следующую клавишу в любом режиме ввода. */
+/** Липкие Shift/Ctrl/Alt с панели клавиш: действуют на следующую клавишу в любом режиме ввода. */
 private class StickyMods {
+    var shift by mutableStateOf(false)
     var ctrl by mutableStateOf(false)
     var alt by mutableStateOf(false)
-    val bits get() = (if (ctrl) CTRL else 0) or (if (alt) ALT else 0)
-    fun clearTransients() { ctrl = false; alt = false }
+    val bits get() = (if (shift) SHIFT else 0) or (if (ctrl) CTRL else 0) or (if (alt) ALT else 0)
+    fun clearTransients() { shift = false; ctrl = false; alt = false }
 }
 
 /**
@@ -237,7 +239,7 @@ fun TerminalScreen(session: SshSession, onBack: () -> Unit, onClose: () -> Unit,
         }
 
         SnippetsBar(session.target.serverId, onRun = session::run, onInsert = { if (!direct) setLine(it) })
-        KeysBar(mods, ::key, ::type, ::arrow, onTab = { if (direct || line.text.isEmpty()) key(VTermKey.TAB) else sendLine("\t") })
+        KeysBar(mods, ::key, ::type, ::arrow, onTab = { if (direct || mods.shift || line.text.isEmpty()) key(VTermKey.TAB) else sendLine("\t") })
 
         if (direct) DirectInput(
             directFocus, ::sendDirect, ::key,
@@ -398,6 +400,7 @@ private fun KeysBar(mods: StickyMods, key: (Int) -> Unit, type: (String) -> Unit
         )
         // Набор и порядок — из Настроек
         for (l in Store.bar) when (l) {
+            "Shift" -> k(l, mods.shift) { mods.shift = !mods.shift }
             "Ctrl" -> k(l, mods.ctrl) { mods.ctrl = !mods.ctrl }
             "Alt" -> k(l, mods.alt) { mods.alt = !mods.alt }
             "Esc" -> k(l) { key(VTermKey.ESCAPE) }

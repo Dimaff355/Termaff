@@ -18,8 +18,8 @@ android {
         applicationId = "app.termaff"
         minSdk = 26
         targetSdk = 37
-        versionCode = 15
-        versionName = "0.9.3"
+        versionCode = 16
+        versionName = "0.9.4"
     }
 
     signingConfigs {

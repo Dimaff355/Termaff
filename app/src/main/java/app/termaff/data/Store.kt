@@ -55,7 +55,7 @@ data class Snippet(
 
 /** Всё состояние приложения — один JSON-файл в приватной папке. Записи атомарные (tmp + rename). */
 /** Все клавиши панели терминала в порядке по умолчанию. */
-val BarKeys = listOf("Ctrl", "Alt", "Esc", "Tab", "↑", "↓", "←", "→", "|", "~", "/", "-", "$", "&", ">", "Home", "End", "PgUp", "PgDn")
+val BarKeys = listOf("Ctrl", "Alt", "Shift", "Esc", "Tab", "↑", "↓", "←", "→", "|", "~", "/", "-", "$", "&", ">", "Home", "End", "PgUp", "PgDn")
 
 object Store {
     private lateinit var file: File
@@ -211,6 +211,8 @@ object Store {
         theme = o.optString("theme")
         lang = o.optString("lang")
         bar = o.optJSONArray("bar")?.let { a -> (0 until a.length()).map(a::getString).filter(BarKeys::contains) } ?: BarKeys
+        // До 0.9.4 клавиши Shift не было: в сохранённую панель добавляем её один раз (дальше можно убрать в Настройках)
+        if (o.optInt("barv") < 1 && "Shift" !in bar) bar = bar.toMutableList().apply { add(minOf(2, size), "Shift") }
         return migrated.isNotEmpty()
     }
 
@@ -235,4 +237,5 @@ object Store {
         .put("theme", theme)
         .put("lang", lang)
         .put("bar", JSONArray(bar))
+        .put("barv", 1)
 }
